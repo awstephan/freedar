@@ -7,7 +7,8 @@ and lifecycle behavior to playback from [#3](https://github.com/awstephan/freeda
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
-target SDK are 35. There is no Play Services dependency or location permission.
+target SDK are 35. There is no Play Services dependency. Foreground location
+permission is requested only when you explicitly choose **Locate**.
 
 ## Build and run
 
@@ -72,6 +73,17 @@ distribution are not configured or authorized by this slice.
 
 ## Behavior and boundaries
 
+- **Locate** uses Android's platform GPS/network providers for a one-shot fix,
+  waiting at most 30 seconds after permission. No cached last-known position is used;
+  updates older than 30 seconds are ignored. Success centers at **zoom 9** and
+  returns radar to newest paused/following. This local-area framing is intended
+  to show nearby approaching precipitation; ground span varies with latitude
+  and viewport size, and zoom adds no radar detail. There is no subsequent tracking.
+  **Cancel** remains visible while waiting. Pan/zoom, search-style navigation and
+  backgrounding invalidate the request, including late permission/fix callbacks.
+  Denial or failure leaves camera/timeline unchanged and explains the outcome.
+  `MainActivity.navigationStarted()` is the shared entry point future search
+  selection must call before moving the camera. Requests do not survive recreation.
 - `radar/` is an Android-free behavioral module. `LatestRadar` exposes Refresh,
   Play, Pause, Select and Latest commands and observable state. `RadarProvider`,
   `Clock`, coroutine scheduling and `RadarDisplay` control responses, time and
@@ -195,7 +207,8 @@ skipped, keeping routine fixture tests independent of provider access.
 
 See [foundation validation](docs/validation/issue-2.md) and
 [playback validation](docs/validation/issue-3.md), and
-[freshness validation](docs/validation/issue-4.md) for actual results, limitations
+[freshness validation](docs/validation/issue-4.md), and
+[positioning validation](docs/validation/issue-6.md) for actual results, limitations
 and the remaining live-service/device checks.
 
 ## Provider contracts and reference

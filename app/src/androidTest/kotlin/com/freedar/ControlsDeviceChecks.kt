@@ -5,18 +5,38 @@ import android.content.res.Configuration
 import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 
 fun ComposeTestRule.rotateAndWait(scenario: ActivityScenario<LifecycleTestActivity>, orientation: Int) {
     val expected = if (orientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
         Configuration.ORIENTATION_LANDSCAPE else Configuration.ORIENTATION_PORTRAIT
-    scenario.onActivity { it.requestedOrientation = orientation }
+    var previous: LifecycleTestActivity? = null
+    var needsRecreation = false
+    scenario.onActivity {
+        previous = it
+        needsRecreation = it.resources.configuration.orientation != expected
+        it.requestedOrientation = orientation
+    }
     waitUntil(10000) {
         var rotated = false
-        scenario.onActivity { rotated = it.resources.configuration.orientation == expected }
+        scenario.onActivity {
+            rotated = (!needsRecreation || it !== previous) &&
+                it.resources.configuration.orientation == expected &&
+                it.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+        }
         rotated
     }
+    waitForIdle()
+}
+
+fun ComposeTestRule.revealMapControls() {
+    // The center of a full-screen map node may be covered by controls or a credit
+    // link at large text sizes. Invoke the explicit accessibility action instead.
+    onNodeWithContentDescription("Weather map").performSemanticsAction(SemanticsActions.OnClick) { it() }
 }
 
 fun withLargeText(test: () -> Unit) {

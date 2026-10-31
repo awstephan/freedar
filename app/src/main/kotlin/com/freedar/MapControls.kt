@@ -1,6 +1,6 @@
 package com.freedar
 
-enum class ControlsHold { INTERACTION, KEYBOARD, TOUCH_EXPLORATION, PERSISTENT, OVERLAY }
+enum class ControlsHold { INTERACTION, KEYBOARD, TOUCH_EXPLORATION, PERSISTENT, OVERLAY, LOCATING }
 
 /** App-level visibility policy. Time is monotonic; radar/playback updates are not interaction. */
 class MapControls(private val now: () -> Long) {

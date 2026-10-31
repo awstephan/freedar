@@ -45,6 +45,10 @@ class RadarMap(context: Context) : RadarDisplay {
     val coverageStatus = mutableCoverageStatus.asStateFlow()
     private var coverage: CoverageFootprint? = null
     private var coverageObserver: Job? = null
+    var onNavigationStarted: () -> Unit = {}
+    private val navigationListener = MapLibreMap.OnCameraMoveStartedListener { reason ->
+        if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) onNavigationStarted()
+    }
 
     init {
         view.addOnTileActionListener { operation, _, _, _, _, _, source ->
@@ -80,6 +84,8 @@ class RadarMap(context: Context) : RadarDisplay {
             // Persistent, individually linked credits are supplied by the Compose overlay.
             isAttributionEnabled = false
         }
+        nativeMap.removeOnCameraMoveStartedListener(navigationListener)
+        nativeMap.addOnCameraMoveStartedListener(navigationListener)
         nativeMap.setMaxZoomPreference(18.0)
         val loaded = CompletableDeferred<Style>()
         val failure = MapView.OnDidFailLoadingMapListener {
@@ -94,6 +100,12 @@ class RadarMap(context: Context) : RadarDisplay {
         } finally {
             view.removeOnDidFailLoadingMapListener(failure)
         }
+    }
+
+    /** Zoom 9 frames a local region; ground span depends on latitude and viewport. */
+    fun centerLocal(position: LocalPosition) {
+        nativeMap.moveCamera(CameraUpdateFactory.newLatLngZoom(
+            org.maplibre.android.geometry.LatLng(position.latitude, position.longitude), 9.0))
     }
 
     fun overview() {

@@ -38,6 +38,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
 import kotlin.math.roundToInt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -60,6 +61,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 open class MainActivity : ComponentActivity() {
+    private var permissionResult: ((Boolean) -> Unit)? = null
+    private val permissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        val callback = permissionResult
+        permissionResult = null
+        callback?.invoke(grants.values.any { it })
+    }
+    protected open fun positionSource(): ForegroundPositionSource = AndroidPositionSource(this) { result ->
+        if (permissionResult != null) result(false)
+        else {
+            permissionResult = result
+            permissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+    private lateinit var positioning: OneShotPositioning
+    /** Shared entry point for map gestures and future search-selection navigation. */
+    fun navigationStarted() { positioning.navigationStarted() }
     protected open fun elapsedMillis(): Long = SystemClock.elapsedRealtime()
     protected open fun radarProvider(): RadarProvider = RainViewer((application as FreedarApplication).httpClient)
     protected open fun baseStyleUrl(): String? = if (BuildConfig.CARTO_API_KEY.isBlank()) null else
@@ -67,7 +87,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var map: RadarMap
     private lateinit var radar: LatestRadar
     private var baseMessage by mutableStateOf<String?>("Loading base map…")
-    private var styleReady = false
+    private var styleReady by mutableStateOf(false)
     private var refreshJob: Job? = null
     private var timelineJob: Job? = null
     private var restored = false
@@ -105,15 +125,24 @@ open class MainActivity : ComponentActivity() {
             monotonicMillis = ::elapsedMillis,
             restoredSelection = selection, restoredMode = mode,
             restoredAwaySince = savedInstanceState?.takeIf { it.containsKey("radarAway") }?.getLong("radarAway"))
+        positioning = OneShotPositioning(positionSource()) { position ->
+            map.centerLocal(position)
+            timeline { radar.latest() }
+        }
+        map.onNavigationStarted = ::navigationStarted
         setContent {
             MaterialTheme {
                 val state by radar.state.collectAsState()
                 val tileStatus by map.status.collectAsState()
                 val coverageStatus by map.coverageStatus.collectAsState()
+                val positionState by positioning.state.collectAsState()
                 MapChrome(controls,
+                    locate = { if (positionState.waiting) positioning.cancel() else positioning.locate() },
+                    locating = positionState.waiting,
+                    locateEnabled = styleReady,
                     map = { AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize()) },
                     status = {
-                        RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }) {
+                        RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }, positionState.message) {
                             controls.reveal()
                             refresh(retryDisplayed = true)
                         }
@@ -233,7 +262,7 @@ open class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable private fun RadarStatus(state: RadarState, base: String?, tiles: String?, retry: () -> Unit) {
+    @Composable private fun RadarStatus(state: RadarState, base: String?, tiles: String?, location: String?, retry: () -> Unit) {
         Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 3.dp) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -251,11 +280,14 @@ open class MainActivity : ComponentActivity() {
                         "Updating".takeIf { state.loading && frame != null },
                         "Base map notice".takeIf { base != null },
                         "Imagery / coverage notice".takeIf { tiles != null },
+                        "Location notice".takeIf { location != null },
                     )
                     if (notices.isNotEmpty()) Text(notices.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                     // The frame and active notice summary stay anchored even when verbose
                     // provider diagnostics need scrolling at large accessibility text sizes.
                     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                        location?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }) }
                         state.newestFrameTime?.let {
                             Text("Newest feed frame · ${state.newestAgeSeconds / 60} min old", style = MaterialTheme.typography.bodySmall)
                         }
@@ -318,6 +350,7 @@ open class MainActivity : ComponentActivity() {
         map.view.onPause(); super.onPause()
     }
     override fun onStop() {
+        positioning.background()
         if (isChangingConfigurations) recreationState = stateBeforeStop ?: radar.state.value
         radar.background(); timelineJob?.cancel(); refreshJob?.cancel()
         map.coverageForeground(false)

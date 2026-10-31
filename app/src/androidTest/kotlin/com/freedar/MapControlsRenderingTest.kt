@@ -29,7 +29,7 @@ class MapControlsRenderingTest {
             for (orientation in listOf(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)) {
                 compose.rotateAndWait(scenario, orientation)
-                compose.onNodeWithContentDescription("Weather map").performClick()
+                compose.revealMapControls()
                 val settings = compose.onNodeWithText("Settings").performScrollTo().assertIsDisplayed()
                 val bounds = settings.fetchSemanticsNode().boundsInWindow
                 scenario.onActivity {
@@ -56,6 +56,10 @@ class MapControlsRenderingTest {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         val original = automation.serviceInfo
         LifecycleTestActivity.provider = RadarProvider { error("Fixture unavailable") }
+        LifecycleTestActivity.positionSource = object : ForegroundPositionSource {
+            override fun permission(result: (Boolean) -> Unit) = result(true)
+            override fun locate(result: (PositionResult) -> Unit): () -> Unit = {}
+        }
         try {
             automation.serviceInfo = automation.serviceInfo.apply {
                 flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
@@ -65,6 +69,15 @@ class MapControlsRenderingTest {
                 compose.onNodeWithText("Settings").assertIsDisplayed()
                 val readingOrder = accessibilityNodes(automation.rootInActiveWindow).map { it.text?.toString() }
                 assertTrue("Status action precedes map controls", readingOrder.indexOf("Retry") in 0 until readingOrder.indexOf("Settings"))
+                compose.waitUntil(30000) { compose.onAllNodes(hasText("Locate") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+                val locate = accessibleButton("Locate")
+                assertTrue(locate.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+                assertTrue(locate.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                compose.onNodeWithText("Cancel").assertIsDisplayed()
+                val cancel = accessibleButton("Cancel")
+                assertTrue(cancel.isAccessibilityFocused || cancel.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+                assertTrue(cancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                compose.onNodeWithText("Locate").assertIsDisplayed()
                 val settings = accessibleButton("Settings")
                 assertTrue(settings.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
                 assertTrue(settings.performAction(AccessibilityNodeInfo.ACTION_CLICK))
@@ -80,11 +93,11 @@ class MapControlsRenderingTest {
                 }
                 compose.waitUntil(5000) { compose.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty() }
             }
-        } finally { automation.serviceInfo = original }
+        } finally { automation.serviceInfo = original; LifecycleTestActivity.positionSource = null }
     }
 
     private fun accessibleButton(text: String): AccessibilityNodeInfo =
-        generateSequence(accessibleNode(text)) { it.parent }.first { it.isClickable }
+        generateSequence(accessibleNode(text)) { it.parent }.first { it.refresh(); it.isClickable }
 
     private fun accessibleNode(text: String): AccessibilityNodeInfo {
         var result: AccessibilityNodeInfo? = null
@@ -104,8 +117,11 @@ class MapControlsRenderingTest {
         return requireNotNull(result)
     }
 
-    private fun accessibilityNodes(node: AccessibilityNodeInfo): List<AccessibilityNodeInfo> =
-        listOf(node) + (0 until node.childCount).mapNotNull { node.getChild(it) }.flatMap(::accessibilityNodes)
+    private fun accessibilityNodes(node: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        // Fetch current exported properties, including in-place Locate/Cancel label changes.
+        node.refresh()
+        return listOf(node) + (0 until node.childCount).mapNotNull { node.getChild(it) }.flatMap(::accessibilityNodes)
+    }
 
     @Test fun timeoutKeepsHonestStatusAndCreditsAndMapTapRevealsSettings() {
         LifecycleTestActivity.provider = RadarProvider { error("Fixture unavailable") }

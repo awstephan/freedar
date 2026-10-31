@@ -14,10 +14,12 @@ class LifecycleTestActivity : MainActivity() {
     override fun radarProvider(): RadarProvider = provider
     override fun baseStyleUrl(): String? = null
     override fun elapsedMillis(): Long = elapsed
+    override fun positionSource(): ForegroundPositionSource = positionSource ?: super.positionSource()
 
     companion object {
         lateinit var provider: RadarProvider
         var elapsed: Long = 0
         var savedForTest: Bundle? = null
+        var positionSource: ForegroundPositionSource? = null
     }
 }

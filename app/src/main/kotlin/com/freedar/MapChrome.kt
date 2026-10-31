@@ -42,6 +42,9 @@ fun MapChrome(
     status: @Composable () -> Unit,
     playback: @Composable () -> Unit,
     credits: @Composable () -> Unit,
+    locate: (() -> Unit)? = null,
+    locating: Boolean = false,
+    locateEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("map-controls", Context.MODE_PRIVATE) }
@@ -57,6 +60,7 @@ fun MapChrome(
         onDispose { accessibility.removeTouchExplorationStateChangeListener(listener) }
     }
     SideEffect {
+        controls.hold(ControlsHold.LOCATING, locating)
         controls.hold(ControlsHold.PERSISTENT, persistent)
         // Future Search/Legend surfaces share this hold for their entire open lifetime.
         controls.hold(ControlsHold.OVERLAY, settingsOpen)
@@ -91,7 +95,8 @@ fun MapChrome(
             val landscape = maxWidth > maxHeight
             val transient: @Composable () -> Unit = {
                 if (controls.visible) {
-                    MapActions(settings = { settingsOpen = true })
+                    MapActions(settings = { settingsOpen = true }, locate = locate,
+                        locating = locating, locateEnabled = locateEnabled)
                     playback()
                 }
             }
@@ -147,11 +152,13 @@ fun MapActions(
     locate: (() -> Unit)? = null,
     search: (() -> Unit)? = null,
     legend: (() -> Unit)? = null,
+    locating: Boolean = false,
+    locateEnabled: Boolean = true,
 ) {
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
             FlowRow {
-                locate?.let { TextButton(onClick = it) { Text("Locate") } }
+                locate?.let { TextButton(onClick = it, enabled = locateEnabled) { Text(if (locating) "Cancel" else "Locate") } }
                 search?.let { TextButton(onClick = it) { Text("Search") } }
                 legend?.let { TextButton(onClick = it) { Text("Legend") } }
                 TextButton(onClick = settings) { Text("Settings") }
