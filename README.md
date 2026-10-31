@@ -24,6 +24,15 @@ The checked-in Gradle 8.13 wrapper verifies its distribution checksum.
    ```
 
    Alternatively export `CARTO_API_KEY` in your shell (takes precedence).
+   If it is stored in the ignored `.env` file, export it before invoking Gradle:
+
+   ```sh
+   set -a
+   source .env
+   set +a
+   ```
+
+   Gradle reads the environment; it does not load `.env` automatically.
 3. Build and install on a connected device/emulator:
 
    ```sh
@@ -124,6 +133,19 @@ known blue PNG through the real native renderer, asserts snapshot pixels and
 records actual HTTP paths at camera zoom 10; testing a source configuration alone
 would not establish overzoom behavior. Debug-only cleartext access supports the
 local fixture; release builds disallow it.
+
+To repeat the **opt-in live CARTO check**, build with the developer key and run:
+
+```sh
+./gradlew :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.freedar.LiveCartoTest \
+  -Pandroid.testInstrumentationRunnerArguments.liveCarto=true
+```
+
+This launches the real app, moves to a regional New York viewport, verifies native
+glyph loading and named rendered symbol features, and captures a screenshot in
+the app's cache. Without the `liveCarto=true` argument this live-service test is
+skipped, keeping routine fixture tests independent of provider access.
 
 See [implementation validation](docs/validation/issue-2.md) for actual results,
 limitations and the remaining live-service/device checks.

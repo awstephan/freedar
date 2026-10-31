@@ -92,14 +92,68 @@ Git's empty tree, the user-approved baseline for this initially unborn repositor
 - Spec: candidate tile errors now fail both loading and final presentation phases.
   Immediate native 503 failure/retention is covered. The narrow race of a tile
   failing after readiness while panning is not independently forced by the test.
-- The keyed CARTO acceptance gap remains explicit; review did not waive it.
+- The initial review left the keyed CARTO acceptance gap explicit; the subsequent
+  keyed-device check below resolves that gap.
 
-## Required live follow-up
+## Keyed CARTO follow-up — 2026-10-31
 
-- **Developer CARTO key not provided.** Provision it via the README, install a
-  keyed build, and verify current Positron vectors, fonts/sprites, readable labels,
-  and all linked credits. No anonymous key or borrowed QuickWeather credential
-  was used. This part of issue acceptance remains pending.
+The maintainer supplied `CARTO_API_KEY` in `.env`. The file is now ignored, and its
+value was exported into the build environment without logging or committing it.
+The keyed debug APK built, installed and launched on the same Google-free API-26
+AOSP emulator.
+
+- The current hosted style identified itself as **Positron (Protomaps)**, with 95
+  layers including 28 symbol layers. It referenced assets under release
+  `20261026-01`. Keyed font PBF, sprite JSON and sprite PNG requests returned
+  HTTP 200 (32,752, 81 and 176 bytes respectively for the sampled assets).
+- The all-state overview rendered current vector geography with live RainViewer
+  precipitation. No missing-key or base-map error message appeared.
+- The initial absence of overview labels was traced to CARTO's style definition:
+  its primary country-label layer has `minzoom: 2`. This was not a failed font
+  request. Regional zoom 7 rendered readable New York, White Plains, Bridgeport,
+  New Haven, Poughkeepsie and other place labels over muted roads and land colors.
+- The opt-in `LiveCartoTest` passed on the real app: at least one native glyph-load
+  event, zero glyph-error events, and a named feature (`Brookhaven`) returned by
+  querying rendered symbol layers. A subsequent screenshot showed the broader
+  set of labels listed above. This test does not run live unless explicitly enabled.
+- Required CARTO and OpenStreetMap credits remained visible. Tapping them emitted
+  Android VIEW intents for `https://carto.com/attribution/` and
+  `https://www.openstreetmap.org/copyright`, respectively.
+- Screenshots inspected locally: `/tmp/opencode/freedar-carto-overview.png` and
+  `/tmp/opencode/freedar-carto-regional.png`. These temporary artifacts contain no
+  key and are not committed. The software emulator again needed Wait on a System
+  UI responsiveness dialog; this does not establish physical-device performance.
+
+Follow-up checks passed with the key exported: the JVM test task (eight existing
+cases, up to date), Android lint, and **both** connected Android tests (the live
+CARTO check and fixture rendering/overzoom/failure-retention check), with no skips:
+
+```sh
+./gradlew test :app:lintDebug :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.liveCarto=true
+```
+
+## Maintainer device confirmation — 2026-10-31
+
+The maintainer reports successfully installing and testing the keyed APK on
+GrapheneOS. This is physical-device confirmation supplied by the maintainer;
+the device model, OS version and individual test steps were not recorded.
+
+## Issue #2 acceptance disposition
+
+All nine acceptance criteria are satisfied by the implementation and evidence
+above: API-26+ Compose/OpenGL foundation and reproducible builds; keyed current
+CARTO maps and linked credits; provider-derived latest historical frame; north-up
+navigation and verified radar overzoom; all-state initial extent and regional
+labels; retained imagery/error behavior; controlled app-level boundaries;
+behavioral and Google-free native tests; and documented references, permission
+questions and absence of background polling/location. The keyed CARTO follow-up
+and maintainer's GrapheneOS confirmation complete the outstanding acceptance
+bookkeeping. Broader validation and external permissions below remain follow-up
+work rather than unmet issue #2 acceptance criteria.
+
+## Broader live follow-up
+
 - Survey live RainViewer coverage in the contiguous US, Alaska, Hawaii and an
   international viewport. The smoke check above validates frame-time handling,
   not completeness of geographical coverage.
