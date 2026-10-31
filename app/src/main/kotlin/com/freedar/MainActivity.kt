@@ -17,6 +17,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Slider
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +31,9 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -35,6 +41,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.freedar.radar.LatestRadar
 import com.freedar.radar.RadarState
 import com.freedar.radar.RainViewer
+import com.freedar.radar.TimelineMode
 import java.time.Clock
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -50,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private var baseMessage by mutableStateOf<String?>("Loading base map…")
     private var styleReady = false
     private var refreshJob: Job? = null
+    private var timelineJob: Job? = null
     private var restored = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +77,10 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp),
                         verticalArrangement = Arrangement.SpaceBetween) {
                         RadarStatus(state, baseMessage, tileStatus, ::refresh)
-                        Credits()
+                        Column {
+                            PlaybackStrip(state)
+                            Credits()
+                        }
                     }
                 }
             }
@@ -77,13 +88,72 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 refresh()
+                var elapsed = 0
                 try {
                     while (true) {
                         radar.updateAge()
-                        delay(30_000) // Foreground age display only; no periodic network polling.
+                        delay(30_000)
+                        elapsed += 30
+                        if (elapsed >= 300) { elapsed = 0; refresh() }
                     }
                 } finally {
+                    radar.pause()
+                    timelineJob?.cancel()
                     refreshJob?.cancel()
+                }
+            }
+        }
+    }
+
+    private fun timeline(action: suspend () -> Unit) {
+        timelineJob?.cancel()
+        timelineJob = lifecycleScope.launch { action() }
+    }
+
+    @Composable private fun PlaybackStrip(state: RadarState) {
+        val frames = state.frames
+        if (frames.isEmpty()) return
+        val first = frames.first().time.epochSecond
+        val span = (frames.last().time.epochSecond - first).toFloat().coerceAtLeast(1f)
+        val selected = state.selection ?: state.frame ?: frames.last()
+        val gapColor = MaterialTheme.colorScheme.error
+        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 3.dp,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            Column(Modifier.padding(horizontal = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        if (state.mode == TimelineMode.PLAYING) { radar.pause(); timelineJob?.cancel() }
+                        else timeline { radar.play() }
+                    }) { Text(if (state.mode == TimelineMode.PLAYING) "Pause" else "Play") }
+                    Text(if (state.mode == TimelineMode.FOLLOWING) "Following latest" else
+                        if (state.mode == TimelineMode.PLAYING) "2 fps" else "Selected frame",
+                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { timeline { radar.latest() } }) { Text("Latest") }
+                }
+                Slider(
+                    value = (selected.time.epochSecond - first).toFloat().coerceIn(0f, span),
+                    onValueChange = { offset ->
+                        val frame = frames.minBy { kotlin.math.abs(it.time.epochSecond - first - offset) }
+                        timeline { radar.select(frame) }
+                    },
+                    valueRange = 0f..span,
+                    enabled = frames.size > 1,
+                    modifier = Modifier.semantics { contentDescription = "Radar history; scrubbing pauses playback" },
+                )
+                if (state.unavailable.isNotEmpty() || state.gaps.isNotEmpty()) {
+                    Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                        state.gaps.forEach { (from, to) ->
+                            drawLine(gapColor,
+                                Offset((from.time.epochSecond - first) / span * size.width, size.height / 2),
+                                Offset((to.time.epochSecond - first) / span * size.width, size.height / 2), size.height)
+                        }
+                        state.unavailable.forEach {
+                            drawCircle(gapColor, 3.dp.toPx(),
+                                Offset((it.time.epochSecond - first) / span * size.width, size.height / 2))
+                        }
+                    }
+                    Text("Timeline gaps · ${state.unavailable.size} unavailable frames · ${state.gaps.size} missing intervals",
+                        style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -161,7 +231,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() { super.onStart(); map.view.onStart() }
     override fun onResume() { super.onResume(); map.view.onResume() }
     override fun onPause() { map.view.onPause(); super.onPause() }
-    override fun onStop() { refreshJob?.cancel(); map.view.onStop(); super.onStop() }
+    override fun onStop() { radar.pause(); timelineJob?.cancel(); refreshJob?.cancel(); map.view.onStop(); super.onStop() }
     override fun onDestroy() { map.view.onDestroy(); super.onDestroy() }
     override fun onLowMemory() { super.onLowMemory(); map.view.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) {

@@ -21,7 +21,9 @@ class RainViewer(
     private val manifestUrl: HttpUrl = "https://api.rainviewer.com/public/weather-maps.json".toHttpUrl(),
 ) : RadarProvider {
     private val json = Json { ignoreUnknownKeys = true }
-    override suspend fun latest(): RadarFrame = suspendCancellableCoroutine { continuation ->
+    override suspend fun latest(): RadarFrame = history().last()
+
+    override suspend fun history(): List<RadarFrame> = suspendCancellableCoroutine { continuation ->
         val call = client.newCall(Request.Builder().url(manifestUrl).build())
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
@@ -39,17 +41,19 @@ class RainViewer(
         })
     }
 
-    private fun parse(response: Response): RadarFrame {
+    private fun parse(response: Response): List<RadarFrame> {
         check(response.isSuccessful) { "Radar service returned HTTP ${response.code}" }
         val manifest = json.decodeFromString<Manifest>(requireNotNull(response.body).string())
-        val frame = requireNotNull(manifest.radar.past.maxByOrNull { it.time }) { "No historical radar frames" }
+        require(manifest.radar.past.isNotEmpty()) { "No historical radar frames" }
         val host = manifest.host.toHttpUrl()
         require(host.isHttps && host.encodedPath == "/" && host.query == null &&
             host.fragment == null && host.username.isEmpty() && host.password.isEmpty())
-        require(frame.time > 0 && frame.path.startsWith("/") && !frame.path.startsWith("//") &&
-            !frame.path.contains("..") && frame.path.none { it in "?#\\{}" || it.isWhitespace() })
-        return RadarFrame(Instant.ofEpochSecond(frame.time),
-            "${manifest.host.trimEnd('/')}${frame.path}/256/{z}/{x}/{y}/2/1_1.png")
+        return manifest.radar.past.map { frame ->
+            require(frame.time > 0 && frame.path.startsWith("/") && !frame.path.startsWith("//") &&
+                !frame.path.contains("..") && frame.path.none { it in "?#\\{}" || it.isWhitespace() })
+            RadarFrame(Instant.ofEpochSecond(frame.time),
+                "${manifest.host.trimEnd('/')}${frame.path}/256/{z}/{x}/{y}/2/1_1.png")
+        }.distinctBy { it.time }.sortedBy { it.time }
     }
 }
 

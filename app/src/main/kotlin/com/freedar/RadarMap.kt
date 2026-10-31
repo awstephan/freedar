@@ -112,13 +112,17 @@ class RadarMap(context: Context) : RadarDisplay {
                 maxZoom = 7f
             }
             style.addSource(RasterSource(id, tileSet, 256))
-            // Nonzero opacity requests native tiles while the preceding frame stays visible.
-            val layer = RasterLayer(id, id).withProperties(rasterOpacity(0.001f), rasterFadeDuration(0f))
+            // Load underneath the opaque base-map background, never blended into the
+            // displayed radar. Both our fallback and CARTO Positron have that background.
+            val loadingLayer = RasterLayer(id, id).withProperties(rasterOpacity(0.65f), rasterFadeDuration(0f))
+            loadingLayer.rasterOpacityTransition = TransitionOptions(0, 0)
+            style.addLayerBelow(loadingLayer, style.layers.first().id)
+            withTimeoutOrNull(30_000) { ready.await() } ?: throw IOException("Radar tiles timed out")
+            style.removeLayer(id)
+            val layer = RasterLayer(id, id).withProperties(rasterOpacity(0.65f), rasterFadeDuration(0f))
             layer.rasterOpacityTransition = TransitionOptions(0, 0)
             val labels = style.layers.firstOrNull { it is SymbolLayer }
             if (labels == null) style.addLayer(layer) else style.addLayerBelow(layer, labels.id)
-            withTimeoutOrNull(30_000) { ready.await() } ?: throw IOException("Radar tiles timed out")
-            layer.setProperties(rasterOpacity(0.65f))
             visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(0f)) }
             presenting = true
             withTimeoutOrNull(30_000) { presented.await() } ?: throw IOException("Radar presentation timed out")

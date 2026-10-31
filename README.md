@@ -1,8 +1,9 @@
 # Freedar
 
-A native Android map with the latest historical precipitation radar. This is the
-first production slice, [issue #2](https://github.com/awstephan/freedar/issues/2),
-under [spec #1](https://github.com/awstephan/freedar/issues/1).
+A native Android map with historical precipitation radar and a scrubbable playback
+strip. [Issue #3](https://github.com/awstephan/freedar/issues/3) builds on the working
+map foundation from [#2](https://github.com/awstephan/freedar/issues/2), under
+[spec #1](https://github.com/awstephan/freedar/issues/1).
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
@@ -71,50 +72,72 @@ distribution are not configured or authorized by this slice.
 
 ## Behavior and boundaries
 
-- `radar/` is an Android-free behavioral module. `LatestRadar.refresh()` and its
-  observable state form the test seam. `RadarProvider`, `Clock`, and `RadarDisplay`
-  control network responses, time, and actual image presentation. No generalized
-  provider registry is introduced.
-- `RainViewer` selects the greatest `time` in `radar.past`, regardless of ordering
-  or frame count, and uses the returned HTTPS host and opaque path. Manifest
-  `generated` and future/nowcast entries never determine frame time.
+- `radar/` is an Android-free behavioral module. `LatestRadar` exposes Refresh,
+  Play, Pause, Select and Latest commands and observable state. `RadarProvider`,
+  `Clock`, coroutine scheduling and `RadarDisplay` control responses, time and
+  actual image presentation. Commands run on the main thread; their caller owns
+  lifecycle cancellation. No generalized provider registry is introduced.
+- `RainViewer` returns ordered historical frames using the returned HTTPS host
+  and opaque paths. The timeline uses the two-hour window ending at the greatest
+  returned frame time, without assuming a frame count. Manifest `generated` and
+  future/nowcast entries never determine frame time.
+- Opening presents newest imagery before loading history. Play starts at oldest,
+  advances at a default 2 fps (slower when waiting for imagery), loops, and holds
+  the newest available image for one second. Pause retains the displayed frame.
+  Scrubbing pauses and retains selection, even across manifest updates; selecting
+  the newest point is still a fixed selection. **Latest** returns to paused,
+  following mode. The timeline is positioned by frame time, with markers/text for
+  unavailable frames and intervals exceeding the provider's ten-minute cadence.
 - **Frame time means composite generation time**, not exact observation time at
   each location. The display uses the phone's clock format/time zone and includes
   a date. A feed is marked stale after its newest-known frame exceeds **20 minutes**,
   independently of the retained displayed image's age if replacement tiles fail.
 - `RadarMap` owns the native renderer. It retains the previous frame while a
-  nearly transparent candidate loads, commits only after native tile parsing and
-  full rendering, and removes failed/cancelled candidates. Labels are above radar.
+  candidate loads beneath the opaque base-map background, commits only after
+  native tile parsing and full rendering, and removes failed/cancelled candidates.
+  Labels are above radar. Obsolete scrub requests are cancelled and serialized;
+  the timestamp changes only after the replacement is presented. Pan/zoom changes
+  neither timeline mode nor selection and never recenters the map.
   Native tile errors remain visible; blank pixels are never called clear weather.
 - Native radar source maxzoom is **7**; camera maxzoom is **18**. Zooming closer
   magnifies the same radar pixels. Pan/pinch remain available during loading and
   failures; rotation and tilt are disabled. The initial overview includes Hawaii,
   northern Alaska and the Aleutians across the antimeridian, with worldwide panning.
-- Opening/foreground return and explicit Refresh/Retry fetch the latest frame.
-  A foreground timer updates only the displayed age. There is **no periodic
-  network polling, background location, playback, or history prefetch** in this
-  slice. Map state is restored through Android activity recreation.
+- Opening/foreground return, explicit Refresh/Retry and a five-minute foreground
+  timer refresh the manifest. Following mode updates imagery; a historical
+  selection stays selected. Backgrounding pauses playback and cancels outstanding
+  commands; there is no background polling or location. History loading is
+  demand-driven with **zero speculative prefetch**. Map state is restored through
+  Android activity recreation.
 - Concurrent refreshes are coalesced. HTTP calls have timeouts, native tile calls
   use at most four requests per host, and the local radar budget is 90 requests
   per rolling minute. A 429 blocks new radar requests for at least one minute
   (longer for numeric `Retry-After`). Multiple devices behind one IP can still
-  exhaust RainViewer's shared 100-request/minute allowance. Retry is manual.
+  exhaust RainViewer's shared 100-request/minute allowance. A cold sequence of
+  13 frames × 8 tiles needs 104 requests even before metadata/retries, so it cannot
+  all load within one minute. Failed frames are skipped until refresh/retry;
+  loaded frames can continue playing through backoff.
   The client and limiter live at application scope, preserving backoff on rotation.
 - No downloaded-data persistence is offered: OkHttp has no disk cache, responses
   are marked no-store, and MapLibre's ambient cache maximum is zero. In-memory
-  current-view reuse is retained. Offline retention awaits permission and a later
-  bounded-cache implementation.
+  reuse is bounded to a 24 MiB application-lifetime LRU of radar tile bytes,
+  expiring after 15 minutes (individual entries capped at 512 KiB). The renderer
+  holds only the visible frame and one candidate, rather than a source per history
+  frame. Warm playback reuses downloaded bytes, not a freshly downloaded sequence.
+  Persistent offline retention awaits permission and a later bounded-cache implementation.
 
 ## Tests and checks
 
-The two agreed seams are app-level latest-radar behavior and native Android map
-integration with a local HTTP fixture. Routine tests need no provider credentials
+The agreed seams are app-level radar behavior, HTTP request/reuse/backoff behavior,
+and native Android map integration with local fixtures. Routine tests need no provider credentials
 or public network access (after dependency download).
 
 ```sh
 # Typechecking / focused behavior test during development
 ./gradlew :radar:compileKotlin :app:compileDebugKotlin
 ./gradlew :radar:test --tests com.freedar.radar.LatestRadarTest
+./gradlew :radar:test --tests com.freedar.radar.PlaybackTest
+./gradlew :radar:test --tests com.freedar.radar.TileLoadingTest
 
 # Native integration on an already booted device
 ./gradlew :app:connectedDebugAndroidTest \
@@ -147,8 +170,9 @@ glyph loading and named rendered symbol features, and captures a screenshot in
 the app's cache. Without the `liveCarto=true` argument this live-service test is
 skipped, keeping routine fixture tests independent of provider access.
 
-See [implementation validation](docs/validation/issue-2.md) for actual results,
-limitations and the remaining live-service/device checks.
+See [foundation validation](docs/validation/issue-2.md) and
+[playback validation](docs/validation/issue-3.md) for actual results, limitations
+and the remaining live-service/device checks.
 
 ## Provider contracts and reference
 
