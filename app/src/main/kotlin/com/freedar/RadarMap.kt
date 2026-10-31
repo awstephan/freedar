@@ -6,6 +6,10 @@ import com.freedar.radar.RadarFrame
 import java.io.IOException
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -27,6 +31,7 @@ import org.maplibre.android.tile.TileOperation
 
 /** Main-thread native boundary. Owns one visible frame and at most one pending replacement. */
 class RadarMap(context: Context) : RadarDisplay {
+    private val client = (context.applicationContext as FreedarApplication).httpClient
     init { MapLibre.getInstance(context) }
     val view = MapView(context)
     lateinit var nativeMap: MapLibreMap
@@ -36,6 +41,10 @@ class RadarMap(context: Context) : RadarDisplay {
     private var sequence = 0
     private val mutableStatus = MutableStateFlow<String?>(null)
     val status = mutableStatus.asStateFlow()
+    private val mutableCoverageStatus = MutableStateFlow(CoverageStatus.UNKNOWN)
+    val coverageStatus = mutableCoverageStatus.asStateFlow()
+    private var coverage: CoverageFootprint? = null
+    private var coverageObserver: Job? = null
 
     init {
         view.addOnTileActionListener { operation, _, _, _, _, _, source ->
@@ -44,6 +53,20 @@ class RadarMap(context: Context) : RadarDisplay {
             }
         }
     }
+
+    /** Static footprint only: transparent means potentially covered, never live health. */
+    fun showCoverage(template: String) {
+        if (coverage == null) {
+            coverage = CoverageFootprint(nativeMap, style, client)
+            coverageObserver = CoroutineScope(Dispatchers.Main.immediate).launch {
+                requireNotNull(coverage).status.collect { mutableCoverageStatus.value = it }
+            }
+        }
+        coverage?.show(template)
+    }
+
+    fun coverageForeground(active: Boolean) { coverage?.foreground(active) }
+    fun stopCoverage() { coverage?.foreground(false); coverageObserver?.cancel() }
 
     suspend fun loadStyle(url: String?) {
         nativeMap = suspendCancellableCoroutine { continuation ->

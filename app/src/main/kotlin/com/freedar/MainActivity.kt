@@ -1,6 +1,10 @@
 package com.freedar
 
 import android.os.Bundle
+import android.os.SystemClock
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -41,6 +45,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.freedar.radar.LatestRadar
 import com.freedar.radar.RadarState
 import com.freedar.radar.RadarFrame
+import com.freedar.radar.RadarProvider
 import com.freedar.radar.RainViewer
 import com.freedar.radar.TimelineMode
 import java.time.Clock
@@ -53,7 +58,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+open class MainActivity : ComponentActivity() {
+    protected open fun elapsedMillis(): Long = SystemClock.elapsedRealtime()
+    protected open fun radarProvider(): RadarProvider = RainViewer((application as FreedarApplication).httpClient)
+    protected open fun baseStyleUrl(): String? = if (BuildConfig.CARTO_API_KEY.isBlank()) null else
+        "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
     private lateinit var map: RadarMap
     private lateinit var radar: LatestRadar
     private var baseMessage by mutableStateOf<String?>("Loading base map…")
@@ -61,14 +70,26 @@ class MainActivity : ComponentActivity() {
     private var refreshJob: Job? = null
     private var timelineJob: Job? = null
     private var restored = false
-    private var restorePlayback = false
     private var recreationState: RadarState? = null
     private var stateBeforeStop: RadarState? = null
+    private var returning = true
+    private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = updateConnectivity()
+        override fun onLost(network: Network) = updateConnectivity()
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = updateConnectivity()
+    }
+
+    private fun updateConnectivity() {
+        runOnUiThread {
+            val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+            radar.connectivity(capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) != true)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val client = (application as FreedarApplication).httpClient
         map = RadarMap(this)
         map.view.onCreate(savedInstanceState)
         restored = savedInstanceState != null
@@ -78,18 +99,22 @@ class MainActivity : ComponentActivity() {
         val mode = savedInstanceState?.getString("radarMode")?.let { name ->
             TimelineMode.entries.firstOrNull { it.name == name }
         } ?: TimelineMode.FOLLOWING
-        restorePlayback = mode == TimelineMode.PLAYING
-        radar = LatestRadar(RainViewer(client), Clock.systemUTC(), map,
-            restoredSelection = selection, restoredMode = mode)
+        radar = LatestRadar(radarProvider(), Clock.systemUTC(), map,
+            monotonicMillis = ::elapsedMillis,
+            restoredSelection = selection, restoredMode = mode,
+            restoredAwaySince = savedInstanceState?.takeIf { it.containsKey("radarAway") }?.getLong("radarAway"))
         setContent {
             MaterialTheme {
                 val state by radar.state.collectAsState()
                 val tileStatus by map.status.collectAsState()
+                val coverageStatus by map.coverageStatus.collectAsState()
                 Box(Modifier.fillMaxSize()) {
                     AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize())
                     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp),
                         verticalArrangement = Arrangement.SpaceBetween) {
-                        RadarStatus(state, baseMessage, tileStatus, ::refresh)
+                        RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }) {
+                            refresh(retryDisplayed = true)
+                        }
                         Column {
                             PlaybackStrip(state)
                             Credits()
@@ -110,7 +135,7 @@ class MainActivity : ComponentActivity() {
                         if (elapsed >= 300) { elapsed = 0; refresh() }
                     }
                 } finally {
-                    radar.pause()
+                    radar.background()
                     timelineJob?.cancel()
                     refreshJob?.cancel()
                 }
@@ -172,15 +197,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun refresh() {
+    private fun refresh(retryDisplayed: Boolean = false) {
         if (refreshJob?.isActive == true) return
         refreshJob = lifecycleScope.launch {
             if (!styleReady) {
                 baseMessage = "Loading base map…"
                 try {
                     val key = BuildConfig.CARTO_API_KEY
-                    map.loadStyle(if (key.isBlank()) null else
-                        "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
+                    map.loadStyle(baseStyleUrl())
                     if (!restored) map.overview()
                     styleReady = true
                     baseMessage = if (key.isBlank()) "Base map needs the developer's CARTO key. See build instructions." else null
@@ -191,10 +215,14 @@ class MainActivity : ComponentActivity() {
                     return@launch
                 }
             }
-            radar.refresh()
-            if (restorePlayback) {
-                restorePlayback = false
-                if (radar.state.value.mode == TimelineMode.PLAYING) timeline { radar.play(resume = true) }
+            if (returning) {
+                val resume = radar.foreground()
+                returning = false
+                if (resume) timeline { radar.play(resume = true) }
+            } else radar.refresh(retryDisplayed)
+            radar.state.value.frames.lastOrNull()?.let {
+                val host = it.tileTemplate.split('/').take(3).joinToString("/")
+                map.showCoverage("$host/v2/coverage/0/256/{z}/{x}/{y}/0/0_0.png")
             }
         }
     }
@@ -212,9 +240,14 @@ class MainActivity : ComponentActivity() {
                         val day = android.text.format.DateFormat.getMediumDateFormat(this@MainActivity).format(date)
                         val zone = DateTimeFormatter.ofPattern("z").withZone(ZoneId.systemDefault()).format(frame.time)
                         Text("Frame time · $day, $localTime $zone", style = MaterialTheme.typography.bodyMedium)
-                        Text("${state.ageSeconds / 60} min old${if (state.stale) " · Stale radar feed" else ""}",
+                        Text("${state.ageSeconds / 60} min old",
                             style = MaterialTheme.typography.bodySmall)
                     } else Text(if (state.loading) "Loading radar…" else "Radar unavailable")
+                    state.newestFrameTime?.let {
+                        Text("Newest feed frame · ${state.newestAgeSeconds / 60} min old", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (state.stale) Text("Stale radar feed", style = MaterialTheme.typography.bodySmall)
+                    if (state.offline) Text("Offline · retained imagery is not live", style = MaterialTheme.typography.bodySmall)
                     if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
                     listOfNotNull(base, state.error, tiles).forEach {
                         Text(it, style = MaterialTheme.typography.bodySmall)
@@ -230,7 +263,8 @@ class MainActivity : ComponentActivity() {
     @Composable private fun Credits() {
         Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 3.dp) {
             Column(Modifier.padding(10.dp)) {
-                Text("Closer zoom enlarges radar; it adds no detail. Blank areas may lack coverage.",
+                Text("Closer zoom adds no radar detail. Shaded areas: outside the static coverage footprint. " +
+                    "Inside the footprint, live availability is unknown. Blank radar does not mean clear weather.",
                     style = MaterialTheme.typography.bodySmall)
                 Text(buildAnnotatedString {
                     withLink(LinkAnnotation.Url("https://www.openstreetmap.org/copyright")) { append("© OpenStreetMap contributors") }
@@ -245,7 +279,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() { super.onStart(); map.view.onStart() }
+    override fun onStart() {
+        super.onStart(); map.view.onStart()
+        map.coverageForeground(true)
+        returning = true
+        connectivity.registerDefaultNetworkCallback(networkCallback)
+        updateConnectivity()
+    }
     override fun onResume() { super.onResume(); map.view.onResume() }
     override fun onPause() {
         // Capture before API-29+ lifecycle pre-stop callbacks can pause playback.
@@ -254,9 +294,12 @@ class MainActivity : ComponentActivity() {
     }
     override fun onStop() {
         if (isChangingConfigurations) recreationState = stateBeforeStop ?: radar.state.value
-        radar.pause(); timelineJob?.cancel(); refreshJob?.cancel(); map.view.onStop(); super.onStop()
+        radar.background(); timelineJob?.cancel(); refreshJob?.cancel()
+        map.coverageForeground(false)
+        connectivity.unregisterNetworkCallback(networkCallback)
+        map.view.onStop(); super.onStop()
     }
-    override fun onDestroy() { map.view.onDestroy(); super.onDestroy() }
+    override fun onDestroy() { map.stopCoverage(); map.view.onDestroy(); super.onDestroy() }
     override fun onLowMemory() { super.onLowMemory(); map.view.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) {
         map.view.onSaveInstanceState(outState)
@@ -267,6 +310,11 @@ class MainActivity : ComponentActivity() {
             outState.putLong("radarTime", it.time.epochSecond)
         }
         outState.putString("radarMode", state.mode.name)
+        // API 26/27 may save before onStop. Persist a timestamp even in that order.
+        outState.putLong("radarAway", radar.backgroundTime ?: elapsedMillis())
+        radar.backgroundTime?.let {
+            outState.putString("radarMode", radar.backgroundMode.name)
+        }
         super.onSaveInstanceState(outState)
     }
 }

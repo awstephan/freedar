@@ -1,8 +1,8 @@
 # Freedar
 
 A native Android map with historical precipitation radar and a scrubbable playback
-strip. [Issue #3](https://github.com/awstephan/freedar/issues/3) builds on the working
-map foundation from [#2](https://github.com/awstephan/freedar/issues/2), under
+strip. [Issue #4](https://github.com/awstephan/freedar/issues/4) adds honest freshness
+and lifecycle behavior to playback from [#3](https://github.com/awstephan/freedar/issues/3), under
 [spec #1](https://github.com/awstephan/freedar/issues/1).
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron
@@ -111,10 +111,27 @@ distribution are not configured or authorized by this slice.
   northern Alaska and the Aleutians across the antimeridian, with worldwide panning.
 - Opening/foreground return, explicit Refresh/Retry and a five-minute foreground
   timer refresh the manifest. Following mode updates imagery; a historical
-  selection stays selected. Backgrounding pauses playback and cancels outstanding
-  commands; there is no background polling or location. History loading is
+  selection stays selected. Backgrounding suspends playback and cancels outstanding
+  commands and footprint downloads; there is no background polling or location.
+  Returns under five minutes retain selection and automatically resume previously
+  active playback. At five minutes or longer, return resets to newest paused/following,
+  preserving the camera. Saved state includes absence time even on Android 8's
+  save-before-stop lifecycle ordering. History loading is
   demand-driven with **zero speculative prefetch**. Map state is restored through
   Android activity recreation, along with timeline selection and playback mode.
+- Offline, loading, manifest refresh failure, imagery failure, and stale-feed notices
+  are independent. A successful historical presentation cannot dismiss a failed
+  manifest refresh. Retry reloads a selected viewport without switching its time.
+  Displayed-frame age and newest-feed age stay visible independently of controls.
+- RainViewer's infrequently updated coverage mask is a **static footprint**, not
+  live completeness. Black mask pixels shade known outside-footprint areas; inside
+  the footprint live availability remains unknown, and blank radar never means clear
+  weather. Missing/loading footprint areas are explicitly unknown. Coverage uses
+  returned provider host and the documented `/v2/coverage/0/…/0/0_0.png` endpoint.
+  At most 16 viewport tiles (z0–7) are fetched sequentially through the shared bounded
+  client/cache/budget. Decoded images enter native image sources, keeping stalled
+  coverage HTTP requests out of radar's native presentation-ready gate. Viewport
+  changes discard obsolete footprint sources; no history prefetch or disk cache.
 - Concurrent refreshes are coalesced. HTTP calls have timeouts, native tile calls
   use at most four requests per host, and the local radar budget is 90 requests
   per rolling minute. A 429 blocks new radar requests for at least one minute
@@ -177,7 +194,8 @@ the app's cache. Without the `liveCarto=true` argument this live-service test is
 skipped, keeping routine fixture tests independent of provider access.
 
 See [foundation validation](docs/validation/issue-2.md) and
-[playback validation](docs/validation/issue-3.md) for actual results, limitations
+[playback validation](docs/validation/issue-3.md), and
+[freshness validation](docs/validation/issue-4.md) for actual results, limitations
 and the remaining live-service/device checks.
 
 ## Provider contracts and reference

@@ -60,7 +60,8 @@ class MapRenderingTest {
                     map.view.onResume()
                     CoroutineScope(Dispatchers.Main).launch {
                         try {
-                            map.loadStyle(null)
+                             map.loadStyle(null)
+                             map.showCoverage("http://127.0.0.1:${server.port}/coverage/256/{z}/{x}/{y}/0/0_0.png")
                             map.overview()
                             for (point in listOf(LatLng(71.4, -156.5), LatLng(19.0, -155.5),
                                 LatLng(52.0, -187.0), LatLng(45.0, -67.0))) {
@@ -93,9 +94,10 @@ class MapRenderingTest {
                 assertTrue("Blue fixture really appears in the rendered pixels", Color.blue(pixel) > Color.red(pixel) + 50)
                 assertTrue("Radar requests were observed", requests.isNotEmpty())
                 assertTrue(requests.toString(), requests.all { it.split('/')[3].toInt() <= 7 })
+                assertTrue("Static coverage is requested separately from radar frames", requests.any { it.startsWith("/coverage/") })
                 assertTrue("Native zoom-7 tiles used at camera zoom 10", requests.any { it.startsWith("/radar/256/7/") })
                 scenario.onActivity {
-                    map.view.onPause(); map.view.onStop(); map.view.onDestroy()
+                    map.stopCoverage(); map.view.onPause(); map.view.onStop(); map.view.onDestroy()
                 }
             }
         }

@@ -93,6 +93,15 @@ budget/backoff failures were exercised only against local fixtures.
 
 ## Limits of this evidence
 
+### Maintainer-reported physical-device confirmation (2026-10-31)
+
+The maintainer reports installing the new keyed #3 APK on their GrapheneOS phone
+and confirms that it is working. This confirmation applies to the #3 playback
+build, supplementing the earlier #2 GrapheneOS report and the emulator evidence
+above. It is maintainer-reported rather than an agent-observed device test; no
+additional measured request counts or detailed physical-device test results were
+reported.
+
 The software emulator does not establish physical-device playback smoothness,
 GPU behavior, accessibility or live worldwide radar coverage. This fixture measures
 a small viewport, not a claim that every viewport uses two tiles. Actual request

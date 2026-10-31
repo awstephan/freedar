@@ -21,6 +21,118 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LatestRadarTest {
+    @Test fun `explicit retry reloads selected viewport without switching to newest`() = runTest {
+        val old = RadarFrame(Instant.ofEpochSecond(1700000000), "https://example.net/old")
+        var newest = old
+        var viewportFails = false
+        val app = LatestRadar(RadarProvider { newest }, Clock.fixed(old.time, ZoneOffset.UTC),
+            RadarDisplay { if (viewportFails) error("viewport unavailable") })
+        app.refresh()
+        app.select(old)
+        newest = old.copy(time = old.time.plusSeconds(600))
+        viewportFails = true
+        app.refresh()
+        assertNull(app.state.value.imageError)
+        app.refresh(retryDisplayed = true)
+        assertNotNull(app.state.value.imageError)
+        assertEquals(old, app.state.value.frame)
+        viewportFails = false
+        app.refresh(retryDisplayed = true)
+        assertNull(app.state.value.imageError)
+        assertEquals(old, app.state.value.frame)
+        assertEquals(TimelineMode.SELECTED, app.state.value.mode)
+    }
+
+    @Test fun `offline stale failure and retry loading coexist without changing displayed time`() = runTest {
+        val frame = RadarFrame(Instant.ofEpochSecond(1700000000), "https://example.net/old")
+        var now = frame.time
+        val clock = object : Clock() {
+            override fun getZone() = ZoneOffset.UTC
+            override fun withZone(zone: java.time.ZoneId) = this
+            override fun instant() = now
+        }
+        var response: suspend () -> RadarFrame = { frame }
+        val app = LatestRadar(RadarProvider { response() }, clock, RadarDisplay {})
+        app.refresh()
+        now = now.plusSeconds(1201)
+        app.connectivity(true)
+        response = { error("offline") }
+        app.refresh()
+        val delayed = CompletableDeferred<RadarFrame>()
+        response = { delayed.await() }
+        val retry = launch { app.refresh() }
+        kotlinx.coroutines.yield()
+        assertTrue(app.state.value.loading)
+        assertTrue(app.state.value.offline)
+        assertTrue(app.state.value.stale)
+        assertNotNull(app.state.value.refreshError)
+        assertEquals(frame, app.state.value.frame)
+        delayed.complete(frame)
+        retry.join()
+        assertNull(app.state.value.refreshError)
+        assertTrue(app.state.value.stale)
+        assertEquals(1201L, app.state.value.ageSeconds)
+    }
+
+    @Test fun `selected frame survives short return and recreation checks elapsed absence`() = runTest {
+        val old = RadarFrame(Instant.ofEpochSecond(1700000000), "https://example.net/old")
+        var elapsed = 100L
+        var newest = old
+        val clock = Clock.fixed(old.time.plusSeconds(1800), ZoneOffset.UTC)
+        val app = LatestRadar(RadarProvider { newest }, clock, RadarDisplay {}, { elapsed })
+        app.refresh()
+        app.select(old)
+        app.background()
+        newest = old.copy(time = old.time.plusSeconds(1800))
+        elapsed += 299999
+        assertFalse(app.foreground())
+        assertEquals(old, app.state.value.frame)
+        assertFalse(app.state.value.stale)
+        app.background()
+        val recreated = LatestRadar(RadarProvider { newest }, clock, RadarDisplay {}, { elapsed },
+            app.state.value.selection, app.backgroundMode, app.backgroundTime)
+        elapsed += 300000
+        assertFalse(recreated.foreground())
+        assertEquals(newest, recreated.state.value.frame)
+        assertEquals(TimelineMode.FOLLOWING, recreated.state.value.mode)
+    }
+
+    @Test fun `short return restores playback intent but five minutes resets to following`() = runTest {
+        val old = RadarFrame(Instant.ofEpochSecond(1700000000), "https://example.net/old")
+        val newest = old.copy(time = old.time.plusSeconds(600))
+        var elapsed = 0L
+        val app = LatestRadar(RadarProvider { newest }, Clock.fixed(newest.time, ZoneOffset.UTC),
+            RadarDisplay {}, monotonicMillis = { elapsed }, restoredSelection = old,
+            restoredMode = TimelineMode.PLAYING)
+        app.refresh()
+        app.background()
+        elapsed = 299999
+        assertTrue(app.foreground())
+        assertEquals(old, app.state.value.frame)
+        app.background()
+        elapsed += 300000
+        assertFalse(app.foreground())
+        assertEquals(TimelineMode.FOLLOWING, app.state.value.mode)
+        assertEquals(newest, app.state.value.frame)
+    }
+
+    @Test fun `historical presentation cannot dismiss refresh failure and retry clears it`() = runTest {
+        val frame = RadarFrame(Instant.ofEpochSecond(1700000000), "https://example.net/old")
+        var fail = false
+        val app = LatestRadar(RadarProvider { if (fail) error("network") else frame },
+            Clock.fixed(frame.time.plusSeconds(1201), ZoneOffset.UTC), RadarDisplay {})
+        app.refresh()
+        fail = true
+        app.refresh()
+        app.select(frame)
+        assertNotNull(app.state.value.error)
+        assertTrue(app.state.value.stale)
+        fail = false
+        app.refresh()
+        assertNull(app.state.value.error)
+        assertTrue(app.state.value.stale)
+    }
+
     @Test fun `unrenderable newest imagery is a refresh failure not a stale feed`() = runTest {
         val old = RadarFrame(Instant.ofEpochSecond(1700000000), "https://example.net/old")
         val fresh = old.copy(time = old.time.plusSeconds(1800), tileTemplate = "https://example.net/new")
@@ -155,6 +267,21 @@ class LatestRadarTest {
                 app.state.value.frame?.tileTemplate)
             assertFalse(app.state.value.loading)
             assertNull(app.state.value.error)
+        }
+    }
+
+    @Test fun `fresh manifest generation cannot make old imagery fresh`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""
+                {"generated":1700001800,"host":"https://radar.example.net",
+                 "radar":{"past":[{"time":1700000000,"path":"/old"}]}}
+            """.trimIndent()))
+            val app = LatestRadar(RainViewer(OkHttpClient(), server.url("/manifest")),
+                Clock.fixed(Instant.ofEpochSecond(1700001800), ZoneOffset.UTC), RadarDisplay {})
+            app.refresh()
+            assertTrue(app.state.value.stale)
+            assertEquals(1800L, app.state.value.newestAgeSeconds)
+            assertEquals(1800L, app.state.value.ageSeconds)
         }
     }
 }
