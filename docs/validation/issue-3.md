@@ -8,7 +8,7 @@ Run on 2026-10-31. Baseline: `6e751d3`, confirmed by the maintainer for review.
 The maintainer approved app-level behavior with controlled provider/time/display,
 HTTP fixtures with controlled time, and real MapLibre Android integration with
 local tiles. History is demand-driven, with no speculative prefetch, bounded
-in-memory reuse and initial newest-frame presentation ahead of history.
+in-memory reuse and newest-frame priority ahead of completing history.
 
 ## Build and behavioral checks
 
@@ -28,10 +28,16 @@ Red/green cycles and focused tests covered:
 - Unavailable frames are skipped and marked without retrying on every loop;
   refresh can recover a failed historical selection without switching to latest.
 - Pausing during loading retains the last image and its selected time.
+- Rolling manifests advance from displayed frame time instead of a stale index;
+  newly announced newest imagery preempts cold history without changing frame time.
+- Variable preparation durations obey a presentation gate; preparation cannot
+  shorten visible frame intervals or the newest hold. Cold loads can extend them.
+- Controller recreation restores selected/playing time; lifecycle state is captured
+  before stop-induced pause. Superseded refreshes cannot clear a newer scrub's loading state.
 - Memory LRU reuse/eviction, shared-IP HTTP 429 backoff and numeric Retry-After,
   serving warm imagery during backoff, and a 90-request rolling-minute budget.
 
-The full check passed: **19 JVM tests, 3 Android tests, no skips**, debug/release
+The final full check passed: **24 JVM tests, 3 Android tests, no skips**, debug/release
 Kotlin compilation, Android lint and both APK builds:
 
 ```sh
@@ -52,19 +58,22 @@ with delayed responses for the superseded frame:
 - At camera zoom 10, newest imagery made **2** requests: native z7 plus z3 fallback.
 - Loading the older frame brought the cold two-frame total to **4** requests.
 - Returning to newest and then older made **0 additional network requests**.
+- Preparing a newly announced newest frame took **2 additional requests** while
+  retaining exactly the historical snapshot pixel. A fully loaded candidate stayed
+  hidden until its presentation gate was released, then rendered correctly.
 - Red/blue snapshot pixels matched the controller's published frame times.
 - Pending delayed imagery retained the red image and its original timestamp.
 - Panning from (40, -100) to (41, -96.1), while increasing camera zoom to 11 and
   superseding the delayed selection, retained timeline mode and camera position.
   The late response did not overwrite the newer blue frame.
-- The full scenario made **12** requests, including new tile columns after panning:
+- The final scenario made **14** requests, including new tile columns after panning:
   z7 x28/y48 initially; z7 x29/y47 and x29/y48 after panning, plus z3 fallbacks.
   **No radar request exceeded z7.**
 
 The existing `MapRenderingTest` also passed, including unavailable replacement
 retention. The opt-in `LiveCartoTest` passed with one native glyph-load event,
 zero glyph errors, and named rendered symbols including New York, Bridgeport,
-White Plains and New Haven. Live service traffic was limited to that smoke check;
+White Plains and Poughkeepsie. Live service traffic was limited to that smoke check;
 budget/backoff failures were exercised only against local fixtures.
 
 ## Resource and lifecycle policy
@@ -80,6 +89,7 @@ budget/backoff failures were exercised only against local fixtures.
   readiness-paced and cannot promise an immediate full-history loop.
 - Foreground metadata refresh every five minutes; paused historical selections
   remain selected. Backgrounding pauses playback and cancels commands/polling.
+  Configuration recreation restores the selection and resumes an active session.
 
 ## Limits of this evidence
 
@@ -88,5 +98,30 @@ GPU behavior, accessibility or live worldwide radar coverage. This fixture measu
 a small viewport, not a claim that every viewport uses two tiles. Actual request
 counts depend on viewport and native fallback behavior. In-session memory reuse
 does not resolve public distribution or persistent caching permission questions.
+Restoration is covered at the controller seam; API-29+ lifecycle ordering was
+reviewed statically, not exercised on a newer device in this session.
 
-Review results are recorded after the independent standards/spec review.
+## Independent review and remediation
+
+Reviewed against maintainer-approved baseline `6e751d3` with independent standards
+and spec agents. The initial implementation was committed as `e11b4d9` before review.
+
+### Standards
+
+No documented-standard violations. Three maintainability findings were addressed:
+centralize CARTO/radar request classification at network composition; document
+requested selection versus displayed frame invariants; share raster-layer setup.
+
+### Spec
+
+Four initial findings were corrected: rotation lost timeline state, newest priority
+was startup-only, rolling histories could skip frames, and rendering duration
+distorted cadence. Follow-up review caught variable-duration timing, lifecycle
+pre-stop ordering and superseded-refresh loading ownership; these were also fixed
+with the presentation gate, pre-stop snapshot and separate fetching/presentation
+loading ownership. Five added behavioral regressions and stronger native pixel
+checks cover the new boundaries. Final static spec re-review found no remaining
+actionable correctness issue.
+
+The full suite was repeated after these material renderer/controller changes;
+the final totals and native request counts above are from that successful run.

@@ -1,6 +1,7 @@
 package com.freedar.radar
 
 import okhttp3.Interceptor
+import okhttp3.HttpUrl
 import okhttp3.MediaType
 import okhttp3.Protocol
 import okhttp3.Request
@@ -11,6 +12,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 class RadarTileRequests(
     private val maxBytes: Long = 24L * 1024 * 1024,
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val isRadarTile: (HttpUrl) -> Boolean = { it.encodedPath.endsWith(".png") },
 ) : Interceptor {
     private data class Tile(val bytes: ByteArray, val type: MediaType?, val loaded: Long)
     private val tiles = LinkedHashMap<String, Tile>(16, 0.75f, true)
@@ -20,9 +22,7 @@ class RadarTileRequests(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val host = request.url.host
-        if (!request.url.encodedPath.endsWith(".png") || host == "cartocdn.com" ||
-            host.endsWith(".cartocdn.com")) return chain.proceed(request)
+        if (!isRadarTile(request.url)) return chain.proceed(request)
         val key = request.url.toString()
         synchronized(this) {
             val tile = tiles[key]

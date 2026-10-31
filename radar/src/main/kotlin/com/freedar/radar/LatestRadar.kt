@@ -25,6 +25,13 @@ fun interface RadarProvider {
 /** Completes after presentation; failure/cancellation must retain the preceding frame. */
 fun interface RadarDisplay {
     suspend fun show(frame: RadarFrame)
+    /** Native renderers load invisibly, await this gate, then expose the ready frame. */
+    suspend fun showWhenReady(frame: RadarFrame, awaitPresentationTime: suspend () -> Unit) {
+        awaitPresentationTime()
+        show(frame)
+    }
+    /** Load newest into in-session memory without replacing displayed imagery. */
+    suspend fun prepare(frame: RadarFrame) {}
 }
 
 enum class TimelineMode { FOLLOWING, SELECTED, PLAYING }
@@ -32,8 +39,10 @@ enum class TimelineMode { FOLLOWING, SELECTED, PLAYING }
 data class RadarState(
     val mode: TimelineMode = TimelineMode.FOLLOWING,
     val unavailable: Set<RadarFrame> = emptySet(),
+    /** Requested slider target; can differ from imagery while loading or after failure. */
     val selection: RadarFrame? = null,
     val frames: List<RadarFrame> = emptyList(),
+    /** Last successfully presented image. Only this frame may label the visible imagery. */
     val frame: RadarFrame? = null,
     val loading: Boolean = false,
     val error: String? = null,
@@ -53,25 +62,38 @@ class LatestRadar(
     private val provider: RadarProvider,
     private val clock: Clock,
     private val display: RadarDisplay,
+    private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+    restoredSelection: RadarFrame? = null,
+    restoredMode: TimelineMode = TimelineMode.FOLLOWING,
 ) {
-    private val mutableState = MutableStateFlow(RadarState())
+    private val mutableState = MutableStateFlow(RadarState(selection = restoredSelection,
+        mode = if (restoredSelection == null) TimelineMode.FOLLOWING else restoredMode))
     val state = mutableState.asStateFlow()
     private val refreshLock = Mutex()
     private var playback: Job? = null
     private var presentation: Job? = null
     private val displayLock = Mutex()
     private var revision = 0L
+    private var fetching = false
 
-    private suspend fun present(frame: RadarFrame) = coroutineScope {
+    private fun updateLoading() {
+        mutableState.value = state.value.copy(loading = fetching || presentation != null)
+    }
+
+    private suspend fun present(frame: RadarFrame, prepareOnly: Boolean = false,
+        notBefore: Long? = null): Boolean = coroutineScope {
         val request = ++revision
         presentation?.cancel()
         val task = async {
             displayLock.withLock {
                 ensureActive()
-                if (request != revision) return@withLock
-                mutableState.value = state.value.copy(loading = true, selection = frame)
+                if (request != revision) return@withLock false
+                mutableState.value = state.value.copy(loading = true,
+                    selection = if (prepareOnly || state.value.mode == TimelineMode.PLAYING) state.value.selection else frame)
                 try {
-                    display.show(frame)
+                    if (prepareOnly) display.prepare(frame) else display.showWhenReady(frame) {
+                        if (notBefore != null) delay((notBefore - monotonicMillis()).coerceAtLeast(0))
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -79,14 +101,16 @@ class LatestRadar(
                         unavailable = state.value.unavailable + frame,
                         error = "Radar frame unavailable. Retaining previous imagery; gaps do not mean clear weather.",
                     )
-                    return@withLock
+                    return@withLock false
                 }
                 ensureActive()
                 if (request == revision) {
-                    mutableState.value = state.value.copy(frame = frame, error = null,
+                    mutableState.value = state.value.copy(frame = if (prepareOnly) state.value.frame else frame, error = null,
+                        selection = if (prepareOnly) state.value.selection else frame,
                         unavailable = state.value.unavailable - frame)
                     updateAge()
                 }
+                true
             }
         }
         presentation = task
@@ -94,32 +118,36 @@ class LatestRadar(
             task.await()
         } catch (cancelled: CancellationException) {
             currentCoroutineContext().ensureActive()
+            false
         } finally {
             if (request == revision) {
                 presentation = null
-                mutableState.value = state.value.copy(loading = false)
+                updateLoading()
             }
         }
     }
 
-    suspend fun play() {
+    /** Play starts oldest; resume is reserved for restoring an active session after recreation. */
+    suspend fun play(resume: Boolean = false) {
         pause()
         val job = currentCoroutineContext()[Job]
         playback = job
-        var index = 0
+        var previous: RadarFrame? = if (resume) state.value.frame else null
+        var nextPresentation = monotonicMillis()
         try {
             // Opening always finishes its newest-frame attempt before history competes.
             refreshLock.withLock { }
             if (state.value.frames.isEmpty()) return
             mutableState.value = state.value.copy(mode = TimelineMode.PLAYING)
             while (currentCoroutineContext().isActive) {
+                refreshLock.withLock { }
                 val frames = state.value.frames.filterNot { it in state.value.unavailable }
                 if (frames.isEmpty()) break
-                val frame = frames[index.coerceAtMost(frames.lastIndex)]
-                present(frame)
-                if (frame in state.value.unavailable) continue
-                delay(if (frame == frames.last()) 1000 else 500)
-                index = (index + 1) % frames.size
+                val frame = frames.firstOrNull { previous == null || it.time > previous!!.time } ?: frames.first()
+                if (!present(frame, notBefore = nextPresentation)) continue
+                previous = frame
+                val period = if (frame == frames.last()) 1000L else 500L
+                nextPresentation = monotonicMillis() + period
             }
         } finally {
             if (playback == job) {
@@ -153,11 +181,13 @@ class LatestRadar(
 
     suspend fun refresh() {
         if (!refreshLock.tryLock()) return
-        mutableState.value = mutableState.value.copy(loading = true)
+        fetching = true
+        updateLoading()
         try {
             val returned = provider.history().distinctBy { it.time }.sortedBy { it.time }
             val frame = returned.last()
             val frames = returned.filter { it.time >= frame.time.minusSeconds(7200) }
+            val newestChanged = frame.time != state.value.newestFrameTime
             val retrySelection = state.value.selection?.takeIf {
                 state.value.mode == TimelineMode.SELECTED && it in state.value.unavailable
             }
@@ -166,18 +196,22 @@ class LatestRadar(
             updateAge()
             if (state.value.mode == TimelineMode.FOLLOWING) {
                 present(frame)
+            } else if (state.value.frame == null && state.value.selection != null) {
+                present(requireNotNull(state.value.selection))
             } else if (retrySelection != null) {
                 present(retrySelection)
+            } else if (state.value.mode == TimelineMode.PLAYING && newestChanged) {
+                present(frame, prepareOnly = true)
             }
-            mutableState.value = state.value.copy(loading = false)
             updateAge()
         } catch (cancelled: CancellationException) {
-            mutableState.value = mutableState.value.copy(loading = false)
             throw cancelled
         } catch (_: Exception) {
-            mutableState.value = mutableState.value.copy(loading = false,
+            mutableState.value = mutableState.value.copy(
                 error = "Radar refresh failed. Missing imagery does not mean clear weather.")
         } finally {
+            fetching = false
+            updateLoading()
             refreshLock.unlock()
         }
     }

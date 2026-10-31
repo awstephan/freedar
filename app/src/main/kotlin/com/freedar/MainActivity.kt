@@ -40,9 +40,11 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.freedar.radar.LatestRadar
 import com.freedar.radar.RadarState
+import com.freedar.radar.RadarFrame
 import com.freedar.radar.RainViewer
 import com.freedar.radar.TimelineMode
 import java.time.Clock
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
@@ -59,6 +61,9 @@ class MainActivity : ComponentActivity() {
     private var refreshJob: Job? = null
     private var timelineJob: Job? = null
     private var restored = false
+    private var restorePlayback = false
+    private var recreationState: RadarState? = null
+    private var stateBeforeStop: RadarState? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +72,15 @@ class MainActivity : ComponentActivity() {
         map = RadarMap(this)
         map.view.onCreate(savedInstanceState)
         restored = savedInstanceState != null
-        radar = LatestRadar(RainViewer(client), Clock.systemUTC(), map)
+        val selection = savedInstanceState?.getString("radarPath")?.let {
+            RadarFrame(Instant.ofEpochSecond(savedInstanceState.getLong("radarTime")), it)
+        }
+        val mode = savedInstanceState?.getString("radarMode")?.let { name ->
+            TimelineMode.entries.firstOrNull { it.name == name }
+        } ?: TimelineMode.FOLLOWING
+        restorePlayback = mode == TimelineMode.PLAYING
+        radar = LatestRadar(RainViewer(client), Clock.systemUTC(), map,
+            restoredSelection = selection, restoredMode = mode)
         setContent {
             MaterialTheme {
                 val state by radar.state.collectAsState()
@@ -179,6 +192,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             radar.refresh()
+            if (restorePlayback) {
+                restorePlayback = false
+                if (radar.state.value.mode == TimelineMode.PLAYING) timeline { radar.play(resume = true) }
+            }
         }
     }
 
@@ -230,12 +247,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() { super.onStart(); map.view.onStart() }
     override fun onResume() { super.onResume(); map.view.onResume() }
-    override fun onPause() { map.view.onPause(); super.onPause() }
-    override fun onStop() { radar.pause(); timelineJob?.cancel(); refreshJob?.cancel(); map.view.onStop(); super.onStop() }
+    override fun onPause() {
+        // Capture before API-29+ lifecycle pre-stop callbacks can pause playback.
+        stateBeforeStop = radar.state.value
+        map.view.onPause(); super.onPause()
+    }
+    override fun onStop() {
+        if (isChangingConfigurations) recreationState = stateBeforeStop ?: radar.state.value
+        radar.pause(); timelineJob?.cancel(); refreshJob?.cancel(); map.view.onStop(); super.onStop()
+    }
     override fun onDestroy() { map.view.onDestroy(); super.onDestroy() }
     override fun onLowMemory() { super.onLowMemory(); map.view.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) {
         map.view.onSaveInstanceState(outState)
+        val state = recreationState ?: if (isChangingConfigurations) stateBeforeStop ?: radar.state.value
+            else radar.state.value
+        (state.selection ?: state.frame)?.let {
+            outState.putString("radarPath", it.tileTemplate)
+            outState.putLong("radarTime", it.time.epochSecond)
+        }
+        outState.putString("radarMode", state.mode.name)
         super.onSaveInstanceState(outState)
     }
 }

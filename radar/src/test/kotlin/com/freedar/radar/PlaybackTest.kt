@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -22,6 +23,109 @@ class PlaybackTest {
     private fun provider() = object : RadarProvider {
         override suspend fun latest() = frames.last()
         override suspend fun history() = frames
+    }
+
+    @Test fun `superseded refresh cannot clear loading for a newer scrub presentation`() = runTest {
+        var available = frames
+        val pending = CompletableDeferred<Unit>()
+        val app = LatestRadar(object : RadarProvider {
+            override suspend fun latest() = available.last()
+            override suspend fun history() = available
+        }, Clock.systemUTC(), RadarDisplay { if (it != frames.last()) pending.await() })
+        app.refresh()
+        available = frames + frames.last().copy(time = frames.last().time.plusSeconds(600))
+        val refresh = launch { app.refresh() }; runCurrent()
+        val scrub = launch { app.select(frames.first()) }; runCurrent()
+        refresh.join()
+        assertTrue("A newer selection is still loading", app.state.value.loading)
+        pending.complete(Unit); scrub.join()
+        assertFalse(app.state.value.loading)
+        assertEquals(frames.first(), app.state.value.frame)
+    }
+
+    @Test fun `activity recreation restores selected or playing frame without jumping to latest`() = runTest {
+        for (mode in listOf(TimelineMode.SELECTED, TimelineMode.PLAYING)) {
+            val shown = mutableListOf<RadarFrame>()
+            val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay { shown += it },
+                monotonicMillis = { testScheduler.currentTime },
+                restoredSelection = frames[1], restoredMode = mode)
+            app.refresh()
+            assertEquals(listOf(frames[1]), shown)
+            assertEquals(mode, app.state.value.mode)
+            if (mode == TimelineMode.PLAYING) {
+                val playing = launch { app.play(resume = true) }; runCurrent()
+                assertEquals(frames.last(), app.state.value.frame)
+                app.pause(); playing.join()
+            }
+        }
+    }
+
+    @Test fun `new manifest preempts cold history to prepare newest without changing displayed time`() = runTest {
+        var available = frames
+        val coldHistory = CompletableDeferred<Unit>()
+        val newestReady = CompletableDeferred<Unit>()
+        val new = frames.last().copy(time = frames.last().time.plusSeconds(600), tileTemplate = "https://example.net/new")
+        val work = mutableListOf<String>()
+        val app = LatestRadar(object : RadarProvider {
+            override suspend fun latest() = available.last()
+            override suspend fun history() = available
+        }, Clock.systemUTC(), object : RadarDisplay {
+            override suspend fun show(frame: RadarFrame) {
+                work += "show:${frame.tileTemplate}"
+                if (frame == frames.first()) coldHistory.await()
+            }
+            override suspend fun prepare(frame: RadarFrame) {
+                work += "prepare:${frame.tileTemplate}"
+                newestReady.await()
+            }
+        }, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        val playing = launch { app.play() }; runCurrent()
+        available = frames + new
+        val refresh = launch { app.refresh() }; runCurrent()
+        assertEquals("prepare:https://example.net/new", work.last())
+        assertEquals(frames.last(), app.state.value.frame)
+        coldHistory.complete(Unit); runCurrent()
+        assertEquals("prepare:https://example.net/new", work.last())
+        newestReady.complete(Unit); runCurrent()
+        assertEquals(frames.first(), app.state.value.frame)
+        assertEquals(TimelineMode.PLAYING, app.state.value.mode)
+        app.pause(); playing.join(); refresh.join()
+    }
+
+    @Test fun `warm rendering cost does not accumulate drift in two fps cadence or newest hold`() = runTest {
+        val presentedAt = mutableListOf<Long>()
+        val app = LatestRadar(provider(), Clock.systemUTC(), object : RadarDisplay {
+            override suspend fun show(frame: RadarFrame) { presentedAt += testScheduler.currentTime }
+            override suspend fun showWhenReady(frame: RadarFrame, awaitPresentationTime: suspend () -> Unit) {
+                delay(if (frame == frames.last()) 400 else 200)
+                awaitPresentationTime()
+                show(frame)
+            }
+        }, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        presentedAt.clear()
+        val playing = launch { app.play() }
+        advanceTimeBy(2300); runCurrent()
+        assertEquals(listOf(600L, 1100L, 1600L, 2600L), presentedAt)
+        app.pause(); playing.join()
+    }
+
+    @Test fun `rolling history advances by displayed frame time rather than stale list index`() = runTest {
+        var available = frames
+        val app = LatestRadar(object : RadarProvider {
+            override suspend fun latest() = available.last()
+            override suspend fun history() = available
+        }, Clock.systemUTC(), RadarDisplay {}, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        val playing = launch { app.play() }; runCurrent()
+        advanceTimeBy(500); runCurrent()
+        assertEquals(frames[1], app.state.value.frame)
+        available = frames.drop(1) + frames.last().copy(time = frames.last().time.plusSeconds(600))
+        app.refresh()
+        advanceTimeBy(500); runCurrent()
+        assertEquals(frames[2], app.state.value.frame)
+        app.pause(); playing.join()
     }
 
     @Test fun `retry refresh recovers unavailable selected frame without following latest`() = runTest {
@@ -74,7 +178,7 @@ class PlaybackTest {
         val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {
             attempted += it
             if (it == frames[1]) error("unavailable")
-        })
+        }, monotonicMillis = { testScheduler.currentTime })
         app.refresh()
         val playing = launch { app.play() }; runCurrent()
         assertEquals(frames[0], app.state.value.frame)
@@ -117,7 +221,7 @@ class PlaybackTest {
         val app = LatestRadar(object : RadarProvider {
             override suspend fun latest() = available.last()
             override suspend fun history() = available
-        }, Clock.systemUTC(), RadarDisplay {})
+        }, Clock.systemUTC(), RadarDisplay {}, monotonicMillis = { testScheduler.currentTime })
         app.refresh()
         launch { app.play() }; runCurrent()
         app.select(frames[1])
@@ -138,7 +242,8 @@ class PlaybackTest {
     }
 
     @Test fun `play begins oldest at two fps holds newest a second loops and pauses`() = runTest {
-        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {})
+        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {},
+            monotonicMillis = { testScheduler.currentTime })
         app.refresh()
         val playing = launch { app.play() }
         runCurrent()

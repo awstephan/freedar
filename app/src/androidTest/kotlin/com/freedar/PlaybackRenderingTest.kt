@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -83,6 +84,22 @@ class PlaybackRenderingTest {
                             center(map)
                             assertEquals("Warm frames reuse tiles without network downloads", coldCount, requests.size)
                             println("Playback requests: newest=$newestCount, cold two-frame total=$coldCount, warm additional=${requests.size - coldCount}")
+                            val priorityFrame = frames.last().copy(time = frames.last().time.plusSeconds(600),
+                                tileTemplate = frames.last().tileTemplate.replace("/new/", "/priority/"))
+                            map.prepare(priorityFrame)
+                            assertEquals("Preparing newest never blends it into historical imagery", oldPixel, center(map))
+                            assertEquals(frames.first(), app.state.value.frame)
+                            println("Priority newest preparation additional requests=${requests.size - coldCount}")
+                            val reachedGate = CompletableDeferred<Unit>()
+                            val releaseGate = CompletableDeferred<Unit>()
+                            val timedTransition = launch {
+                                map.showWhenReady(priorityFrame) { reachedGate.complete(Unit); releaseGate.await() }
+                            }
+                            reachedGate.await()
+                            assertEquals("Loaded candidate stays hidden until its presentation deadline", oldPixel, center(map))
+                            releaseGate.complete(Unit); timedTransition.join()
+                            assertBlue(center(map))
+                            app.select(frames.first())
                             val slow = launch { app.select(frames[1]) }
                             withTimeout(10_000) {
                                 while (requests.none { it.startsWith("/slow/") }) delay(20)

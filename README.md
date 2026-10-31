@@ -88,6 +88,9 @@ distribution are not configured or authorized by this slice.
   the newest point is still a fixed selection. **Latest** returns to paused,
   following mode. The timeline is positioned by frame time, with markers/text for
   unavailable frames and intervals exceeding the provider's ten-minute cadence.
+  During playback, newly announced newest imagery preempts history loading and
+  is prepared invisibly first. The displayed historical frame and its timestamp
+  remain unchanged while that preparation runs.
 - **Frame time means composite generation time**, not exact observation time at
   each location. The display uses the phone's clock format/time zone and includes
   a date. A feed is marked stale after its newest-known frame exceeds **20 minutes**,
@@ -98,6 +101,9 @@ distribution are not configured or authorized by this slice.
   Labels are above radar. Obsolete scrub requests are cancelled and serialized;
   the timestamp changes only after the replacement is presented. Pan/zoom changes
   neither timeline mode nor selection and never recenters the map.
+  Playback loads its one requested next frame under the background, then waits
+  at a presentation gate for the 500 ms step or one-second endpoint hold. Camera
+  changes during that wait require readiness for the new viewport before exposure.
   Native tile errors remain visible; blank pixels are never called clear weather.
 - Native radar source maxzoom is **7**; camera maxzoom is **18**. Zooming closer
   magnifies the same radar pixels. Pan/pinch remain available during loading and
@@ -108,7 +114,7 @@ distribution are not configured or authorized by this slice.
   selection stays selected. Backgrounding pauses playback and cancels outstanding
   commands; there is no background polling or location. History loading is
   demand-driven with **zero speculative prefetch**. Map state is restored through
-  Android activity recreation.
+  Android activity recreation, along with timeline selection and playback mode.
 - Concurrent refreshes are coalesced. HTTP calls have timeouts, native tile calls
   use at most four requests per host, and the local radar budget is 90 requests
   per rolling minute. A 429 blocks new radar requests for at least one minute

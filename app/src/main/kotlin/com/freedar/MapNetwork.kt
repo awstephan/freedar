@@ -4,6 +4,7 @@ import android.content.Context
 import com.freedar.radar.RadarTileRequests
 import java.util.concurrent.TimeUnit
 import okhttp3.Interceptor
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.maplibre.android.module.http.HttpRequestUtil
@@ -16,7 +17,7 @@ fun configureMapNetwork(context: Context, cartoKey: String): OkHttpClient {
         .readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
-        .addInterceptor(RadarTileRequests())
+        .addInterceptor(RadarTileRequests(isRadarTile = { it.encodedPath.endsWith(".png") && !it.isCarto() }))
         .addInterceptor(CartoRequests(cartoKey))
         .build()
     client.dispatcher.maxRequests = 8
@@ -29,10 +30,12 @@ fun configureMapNetwork(context: Context, cartoKey: String): OkHttpClient {
     return client
 }
 
+private fun HttpUrl.isCarto() = host == "cartocdn.com" || host.endsWith(".cartocdn.com")
+
 private class CartoRequests(private val cartoKey: String) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
-        val carto = original.url.host == "cartocdn.com" || original.url.host.endsWith(".cartocdn.com")
+        val carto = original.url.isCarto()
         val request = if (carto) original.newBuilder().url(original.url.newBuilder()
             .setQueryParameter("key", cartoKey).build()).build() else original
         val response = chain.proceed(request)
