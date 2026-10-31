@@ -8,14 +8,11 @@ import android.net.NetworkCapabilities
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -24,6 +21,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Slider
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import kotlin.math.roundToInt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -73,6 +74,7 @@ open class MainActivity : ComponentActivity() {
     private var recreationState: RadarState? = null
     private var stateBeforeStop: RadarState? = null
     private var returning = true
+    private val controls = ControlsPresentation()
     private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = updateConnectivity()
@@ -108,19 +110,17 @@ open class MainActivity : ComponentActivity() {
                 val state by radar.state.collectAsState()
                 val tileStatus by map.status.collectAsState()
                 val coverageStatus by map.coverageStatus.collectAsState()
-                Box(Modifier.fillMaxSize()) {
-                    AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize())
-                    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp),
-                        verticalArrangement = Arrangement.SpaceBetween) {
+                MapChrome(controls,
+                    map = { AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize()) },
+                    status = {
                         RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }) {
+                            controls.reveal()
                             refresh(retryDisplayed = true)
                         }
-                        Column {
-                            PlaybackStrip(state)
-                            Credits()
-                        }
-                    }
-                }
+                    },
+                    playback = { PlaybackStrip(state) },
+                    credits = { Credits() },
+                )
             }
         }
         lifecycleScope.launch {
@@ -144,6 +144,7 @@ open class MainActivity : ComponentActivity() {
     }
 
     private fun timeline(action: suspend () -> Unit) {
+        controls.reveal()
         timelineJob?.cancel()
         timelineJob = lifecycleScope.launch { action() }
     }
@@ -151,15 +152,16 @@ open class MainActivity : ComponentActivity() {
     @Composable private fun PlaybackStrip(state: RadarState) {
         val frames = state.frames
         if (frames.isEmpty()) return
-        val first = frames.first().time.epochSecond
-        val span = (frames.last().time.epochSecond - first).toFloat().coerceAtLeast(1f)
+        val span = (frames.size - 1).coerceAtLeast(1).toFloat()
         val selected = state.selection ?: state.frame ?: frames.last()
+        val selectedIndex = frames.indexOfFirst { it.tileTemplate == selected.tileTemplate }.coerceAtLeast(0)
         val gapColor = MaterialTheme.colorScheme.error
         Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 3.dp,
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
             Column(Modifier.padding(horizontal = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
+                        controls.reveal()
                         if (state.mode == TimelineMode.PLAYING) { radar.pause(); timelineJob?.cancel() }
                         else timeline { radar.play() }
                     }) { Text(if (state.mode == TimelineMode.PLAYING) "Pause" else "Play") }
@@ -169,25 +171,29 @@ open class MainActivity : ComponentActivity() {
                     TextButton(onClick = { timeline { radar.latest() } }) { Text("Latest") }
                 }
                 Slider(
-                    value = (selected.time.epochSecond - first).toFloat().coerceIn(0f, span),
+                    value = selectedIndex.toFloat(),
                     onValueChange = { offset ->
-                        val frame = frames.minBy { kotlin.math.abs(it.time.epochSecond - first - offset) }
+                        val frame = frames[offset.roundToInt().coerceIn(frames.indices)]
                         timeline { radar.select(frame) }
                     },
-                    valueRange = 0f..span,
+                    valueRange = 0f..(frames.size - 1).coerceAtLeast(1).toFloat(),
+                    steps = (frames.size - 2).coerceAtLeast(0),
                     enabled = frames.size > 1,
-                    modifier = Modifier.semantics { contentDescription = "Radar history; scrubbing pauses playback" },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Radar history; scrubbing pauses playback"
+                        stateDescription = "Frame ${selectedIndex + 1} of ${frames.size}, ${frameLabel(selected)}"
+                    },
                 )
                 if (state.unavailable.isNotEmpty() || state.gaps.isNotEmpty()) {
                     Canvas(Modifier.fillMaxWidth().height(4.dp)) {
                         state.gaps.forEach { (from, to) ->
                             drawLine(gapColor,
-                                Offset((from.time.epochSecond - first) / span * size.width, size.height / 2),
-                                Offset((to.time.epochSecond - first) / span * size.width, size.height / 2), size.height)
+                                Offset(frames.indexOf(from) / span * size.width, size.height / 2),
+                                Offset(frames.indexOf(to) / span * size.width, size.height / 2), size.height)
                         }
                         state.unavailable.forEach {
                             drawCircle(gapColor, 3.dp.toPx(),
-                                Offset((it.time.epochSecond - first) / span * size.width, size.height / 2))
+                                Offset(frames.indexOf(it) / span * size.width, size.height / 2))
                         }
                     }
                     Text("Timeline gaps · ${state.unavailable.size} unavailable frames · ${state.gaps.size} missing intervals",
@@ -232,25 +238,33 @@ open class MainActivity : ComponentActivity() {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Freedar", style = MaterialTheme.typography.titleMedium)
                     val frame = state.frame
                     if (frame != null) {
-                        val date = Date.from(frame.time)
-                        val localTime = android.text.format.DateFormat.getTimeFormat(this@MainActivity).format(date)
-                        val day = android.text.format.DateFormat.getMediumDateFormat(this@MainActivity).format(date)
-                        val zone = DateTimeFormatter.ofPattern("z").withZone(ZoneId.systemDefault()).format(frame.time)
-                        Text("Frame time · $day, $localTime $zone", style = MaterialTheme.typography.bodyMedium)
+                        Text("Frame time · ${frameLabel(frame)}", style = MaterialTheme.typography.bodyMedium)
                         Text("${state.ageSeconds / 60} min old",
                             style = MaterialTheme.typography.bodySmall)
                     } else Text(if (state.loading) "Loading radar…" else "Radar unavailable")
-                    state.newestFrameTime?.let {
-                        Text("Newest feed frame · ${state.newestAgeSeconds / 60} min old", style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (state.stale) Text("Stale radar feed", style = MaterialTheme.typography.bodySmall)
-                    if (state.offline) Text("Offline · retained imagery is not live", style = MaterialTheme.typography.bodySmall)
-                    if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
-                    listOfNotNull(base, state.error, tiles).forEach {
-                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    val notices = listOfNotNull(
+                        "Stale feed".takeIf { state.stale },
+                        "Offline".takeIf { state.offline },
+                        "Refresh failed".takeIf { state.error != null },
+                        "Updating".takeIf { state.loading && frame != null },
+                        "Base map notice".takeIf { base != null },
+                        "Imagery / coverage notice".takeIf { tiles != null },
+                    )
+                    if (notices.isNotEmpty()) Text(notices.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                    // The frame and active notice summary stay anchored even when verbose
+                    // provider diagnostics need scrolling at large accessibility text sizes.
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                        state.newestFrameTime?.let {
+                            Text("Newest feed frame · ${state.newestAgeSeconds / 60} min old", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (state.stale) Text("Stale radar feed", style = MaterialTheme.typography.bodySmall)
+                        if (state.offline) Text("Offline · retained imagery is not live", style = MaterialTheme.typography.bodySmall)
+                        if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
+                        listOfNotNull(base, state.error, tiles).forEach {
+                            Text(it, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
                 TextButton(onClick = retry, enabled = !state.loading) {
@@ -263,8 +277,8 @@ open class MainActivity : ComponentActivity() {
     @Composable private fun Credits() {
         Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 3.dp) {
             Column(Modifier.padding(10.dp)) {
-                Text("Closer zoom adds no radar detail. Shaded areas: outside the static coverage footprint. " +
-                    "Inside the footprint, live availability is unknown. Blank radar does not mean clear weather.",
+                Text("Zoom adds no radar detail. Shaded: outside static footprint. Elsewhere: live coverage unknown. " +
+                    "Blank radar does not mean clear weather.",
                     style = MaterialTheme.typography.bodySmall)
                 Text(buildAnnotatedString {
                     withLink(LinkAnnotation.Url("https://www.openstreetmap.org/copyright")) { append("© OpenStreetMap contributors") }
@@ -279,8 +293,19 @@ open class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun frameLabel(frame: RadarFrame): String {
+        val date = Date.from(frame.time)
+        val time = android.text.format.DateFormat.getTimeFormat(this).format(date)
+        val day = android.text.format.DateFormat.getMediumDateFormat(this).format(date)
+        val zone = DateTimeFormatter.ofPattern("z").withZone(ZoneId.systemDefault()).format(frame.time)
+        return "$day, $time $zone"
+    }
+
     override fun onStart() {
         super.onStart(); map.view.onStart()
+        controls.hold(ControlsHold.INTERACTION, false)
+        controls.hold(ControlsHold.KEYBOARD, false)
+        controls.reveal()
         map.coverageForeground(true)
         returning = true
         connectivity.registerDefaultNetworkCallback(networkCallback)
