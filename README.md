@@ -69,7 +69,7 @@ distribution are not configured or authorized by this slice.
   CARTO's style/glyph/sprite/tile URLs can change as they update their maps; the
   network adapter attaches the project key only to `cartocdn.com` and subdomains.
 - Visible on-map links credit **OpenStreetMap contributors**, **CARTO**,
-  **RainViewer**, and **MapLibre**. They remain outside system-bar insets.
+  **RainViewer**, **MapLibre**, and **GeoNames**. They remain outside system-bar insets.
 
 ## Behavior and boundaries
 
@@ -82,8 +82,15 @@ distribution are not configured or authorized by this slice.
   **Cancel** remains visible while waiting. Pan/zoom, search-style navigation and
   backgrounding invalidate the request, including late permission/fix callbacks.
   Denial or failure leaves camera/timeline unchanged and explains the outcome.
-  `MainActivity.navigationStarted()` is the shared entry point future search
+  `MainActivity.navigationStarted()` is the shared entry point search
   selection must call before moving the camera. Requests do not survive recreation.
+- **Search** finds cities and towns worldwide using a bundled GeoNames cities500
+  database, entirely offline. Submit a place name using the keyboard's Search action;
+  results identify region and country. Selection cancels pending Locate, centers at
+  zoom 9, and returns radar to newest paused/following. Search stays open until
+  selection or dismissal. It does not search addresses/businesses or guarantee every
+  settlement; alternate names and normalized prefixes help with spelling variants.
+  See [dataset provenance, reproduction, matching and storage](docs/place-search.md).
 - `radar/` is an Android-free behavioral module. `LatestRadar` exposes Refresh,
   Play, Pause, Select and Latest commands and observable state. `RadarProvider`,
   `Clock`, coroutine scheduling and `RadarDisplay` control responses, time and
@@ -208,7 +215,8 @@ skipped, keeping routine fixture tests independent of provider access.
 See [foundation validation](docs/validation/issue-2.md) and
 [playback validation](docs/validation/issue-3.md), and
 [freshness validation](docs/validation/issue-4.md), and
-[positioning validation](docs/validation/issue-6.md) for actual results, limitations
+[positioning validation](docs/validation/issue-6.md), and
+[offline search validation](docs/validation/issue-7.md) for actual results, limitations
 and the remaining live-service/device checks.
 
 ## Provider contracts and reference

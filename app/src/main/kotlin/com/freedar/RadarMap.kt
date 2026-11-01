@@ -104,8 +104,10 @@ class RadarMap(context: Context) : RadarDisplay {
 
     /** Zoom 9 frames a local region; ground span depends on latitude and viewport. */
     fun centerLocal(position: LocalPosition) {
-        nativeMap.moveCamera(CameraUpdateFactory.newLatLngZoom(
-            org.maplibre.android.geometry.LatLng(position.latitude, position.longitude), 9.0))
+        view.getMapAsync { map ->
+            map.moveCamera(CameraUpdateFactory.newLatLngZoom(
+                org.maplibre.android.geometry.LatLng(position.latitude, position.longitude), 9.0))
+        }
     }
 
     fun overview() {

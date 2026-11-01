@@ -78,7 +78,7 @@ open class MainActivity : ComponentActivity() {
         }
     }
     private lateinit var positioning: OneShotPositioning
-    /** Shared entry point for map gestures and future search-selection navigation. */
+    /** Shared entry point for map gestures and search-selection navigation. */
     fun navigationStarted() { positioning.navigationStarted() }
     protected open fun elapsedMillis(): Long = SystemClock.elapsedRealtime()
     protected open fun radarProvider(): RadarProvider = RainViewer((application as FreedarApplication).httpClient)
@@ -91,6 +91,7 @@ open class MainActivity : ComponentActivity() {
     private var refreshJob: Job? = null
     private var timelineJob: Job? = null
     private var restored = false
+    private var placeSelected = false
     private var recreationState: RadarState? = null
     private var stateBeforeStop: RadarState? = null
     private var returning = true
@@ -140,6 +141,12 @@ open class MainActivity : ComponentActivity() {
                     locate = { if (positionState.waiting) positioning.cancel() else positioning.locate() },
                     locating = positionState.waiting,
                     locateEnabled = styleReady,
+                    selectPlace = { place ->
+                        navigationStarted()
+                        placeSelected = true
+                        map.centerLocal(place.position)
+                        timeline { radar.latest() }
+                    },
                     map = { AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize()) },
                     status = {
                         RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }, positionState.message) {
@@ -240,7 +247,7 @@ open class MainActivity : ComponentActivity() {
                 try {
                     val key = BuildConfig.CARTO_API_KEY
                     map.loadStyle(baseStyleUrl())
-                    if (!restored) map.overview()
+                    if (!restored && !placeSelected) map.overview()
                     styleReady = true
                     baseMessage = if (key.isBlank()) "Base map needs the developer's CARTO key. See build instructions." else null
                 } catch (cancelled: CancellationException) {
@@ -320,6 +327,8 @@ open class MainActivity : ComponentActivity() {
                     withLink(LinkAnnotation.Url("https://www.rainviewer.com/")) { append("Radar: RainViewer") }
                     append(" · ")
                     withLink(LinkAnnotation.Url("https://maplibre.org/")) { append("MapLibre") }
+                    append(" · ")
+                    withLink(LinkAnnotation.Url("https://www.geonames.org/")) { append("Places: GeoNames") }
                 }, style = MaterialTheme.typography.bodySmall)
             }
         }

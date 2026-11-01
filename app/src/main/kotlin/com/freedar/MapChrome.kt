@@ -18,6 +18,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -45,11 +46,15 @@ fun MapChrome(
     locate: (() -> Unit)? = null,
     locating: Boolean = false,
     locateEnabled: Boolean = true,
+    selectPlace: ((Place) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val preferences = remember { context.getSharedPreferences("map-controls", Context.MODE_PRIVATE) }
     var persistent by remember { mutableStateOf(preferences.getBoolean("persistent", false)) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var searchState by rememberSaveable(stateSaver = PlaceSearchState.Saver) { mutableStateOf(PlaceSearchState()) }
     val accessibility = remember { context.getSystemService(AccessibilityManager::class.java) }
     DisposableEffect(accessibility) {
         controls.hold(ControlsHold.TOUCH_EXPLORATION, accessibility.isTouchExplorationEnabled)
@@ -59,12 +64,12 @@ fun MapChrome(
         accessibility.addTouchExplorationStateChangeListener(listener)
         onDispose { accessibility.removeTouchExplorationStateChangeListener(listener) }
     }
+    val overlayOpen = settingsOpen || searchOpen
     SideEffect {
         controls.hold(ControlsHold.LOCATING, locating)
         controls.hold(ControlsHold.PERSISTENT, persistent)
-        // Future Search/Legend surfaces share this hold for their entire open lifetime.
-        controls.hold(ControlsHold.OVERLAY, settingsOpen)
-        if (settingsOpen) controls.hold(ControlsHold.KEYBOARD, false)
+        controls.hold(ControlsHold.OVERLAY, overlayOpen)
+        if (overlayOpen) controls.hold(ControlsHold.KEYBOARD, false)
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(controls, lifecycle) {
@@ -91,13 +96,17 @@ fun MapChrome(
             onClick("Show map controls") { controls.reveal(); true }
             traversalIndex = 0f
         }) { map() }
-        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().padding(8.dp)) {
-            val landscape = maxWidth > maxHeight
+        Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(8.dp)) {
             val transient: @Composable () -> Unit = {
                 if (controls.visible) {
-                    MapActions(settings = { settingsOpen = true }, locate = locate,
-                        locating = locating, locateEnabled = locateEnabled)
-                    playback()
+                    if (searchOpen && selectPlace != null) {
+                        PlaceSearchSurface(searchState, selectPlace, dismiss = { searchOpen = false })
+                    } else {
+                        MapActions(settings = { settingsOpen = true }, locate = locate,
+                            search = selectPlace?.let { { searchState = PlaceSearchState(); searchOpen = true } },
+                            locating = locating, locateEnabled = locateEnabled)
+                        playback()
+                    }
                 }
             }
             if (landscape) {

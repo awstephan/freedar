@@ -28,6 +28,91 @@ import org.maplibre.android.geometry.LatLng
 class ControlsPlaybackTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun searchEmptyResultsAndRecreationKeepManualNavigationAndLargeTextContext() = withLargeText {
+        withRadar { scenario ->
+            for (orientation in listOf(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)) {
+                compose.rotateAndWait(scenario, orientation)
+                compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                compose.revealMapControls()
+                compose.onNodeWithText("Search").performScrollTo().performClick()
+                Thread.sleep(5500)
+                compose.onNodeWithText("Close search").assertExists()
+                compose.onNodeWithText("City or town").performScrollTo().performClick()
+                compose.waitUntil(5000) {
+                    var keyboardVisible = false
+                    scenario.onActivity { keyboardVisible = androidx.core.view.ViewCompat.getRootWindowInsets(it.window.decorView)
+                        ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true }
+                    keyboardVisible
+                }
+                compose.onNodeWithText("City or town").assertIsDisplayed().performTextInput("zzzznonexistentsettlement")
+                compose.onNodeWithText("City or town").performImeAction()
+                compose.waitUntil(30000) { compose.onAllNodesWithText("No places found.", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText("No places found.", substring = true).performScrollTo().assertIsDisplayed()
+                compose.onNodeWithText("Frame time", substring = true).assertIsDisplayed()
+                compose.onNodeWithText("Blank radar does not mean clear weather.", substring = true).assertIsDisplayed()
+                compose.onNodeWithText("Places: GeoNames", substring = true).assertIsDisplayed()
+                compose.onNodeWithText("Close search").performScrollTo().performClick()
+            }
+            compose.revealMapControls()
+            compose.onNodeWithText("Search").performScrollTo().performClick()
+            compose.onNodeWithText("City or town").performTextInput("Twizel")
+            compose.rotateAndWait(scenario, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+            compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Close search").assertExists()
+            compose.onNodeWithText("City or town").assertTextContains("Twizel")
+            compose.onNodeWithText("City or town").performImeAction()
+            compose.waitUntil(30000) { compose.onAllNodesWithText("Twizel ·", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Twizel ·", substring = true).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Close search").performScrollTo().performClick()
+            compose.waitUntil(8000) { compose.onAllNodesWithText("Search").fetchSemanticsNodes().isEmpty() }
+            compose.revealMapControls()
+            compose.onNodeWithText("Search").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    @Test fun submittedSearchStaysOpenAndSelectionInvalidatesLocateAndResetsHistory() {
+        var lateFix: ((PositionResult) -> Unit)? = null
+        LifecycleTestActivity.positionSource = object : ForegroundPositionSource {
+            override fun permission(result: (Boolean) -> Unit) = result(true)
+            override fun locate(result: (PositionResult) -> Unit): () -> Unit {
+                lateFix = result
+                return {}
+            }
+        }
+        try { withRadar { scenario ->
+            compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+            awaitText("Selected frame")
+            compose.onNodeWithText("Locate").performClick()
+            compose.onNodeWithText("Search").performClick()
+            compose.onNodeWithText("City or town").performTextInput("Reykjavik")
+            Thread.sleep(5500)
+            compose.onNodeWithText("Close search").assertIsDisplayed()
+            compose.onNodeWithText("Reykjavík", substring = true).assertDoesNotExist()
+            compose.onNodeWithText("City or town").performImeAction()
+            compose.waitUntil(30000) {
+                compose.onAllNodesWithText("Reykjavík", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Reykjavík", substring = true).performScrollTo().performClick()
+            awaitText("Following latest")
+            compose.waitUntil(30000) {
+                compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                    .fetchSemanticsNode().config[SemanticsProperties.StateDescription].startsWith("Frame 2 of 2")
+            }
+            compose.onNodeWithText("Play").assertExists()
+            compose.onNodeWithText("Close search").assertDoesNotExist()
+            compose.onNodeWithText("Cancel").assertDoesNotExist()
+            scenario.onActivity { activity ->
+                lateFix!!(PositionResult.Fix(LocalPosition(1.0, 2.0)))
+                requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                    assertEquals(64.1355, it.cameraPosition.target!!.latitude, 0.01)
+                    assertEquals(-21.8954, it.cameraPosition.target!!.longitude, 0.01)
+                    assertEquals(9.0, it.cameraPosition.zoom, 0.001)
+                }
+            }
+        } } finally { LifecycleTestActivity.positionSource = null }
+    }
+
     @Test fun locationFailureAtLargeTextPreservesFrameNoticeCoverageAndCredits() = withLargeText {
         LifecycleTestActivity.positionSource = object : ForegroundPositionSource {
             override fun permission(result: (Boolean) -> Unit) = result(false)
