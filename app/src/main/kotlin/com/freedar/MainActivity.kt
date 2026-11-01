@@ -83,9 +83,12 @@ open class MainActivity : ComponentActivity() {
     protected open fun elapsedMillis(): Long = SystemClock.elapsedRealtime()
     protected open fun radarProvider(): RadarProvider = RainViewer((application as FreedarApplication).httpClient)
     protected open fun baseStyleUrl(): String? = if (BuildConfig.CARTO_API_KEY.isBlank()) null else
-        "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+        "https://basemaps.cartocdn.com/gl/${if (darkTheme) "dark-matter" else "positron"}-gl-style/style.json"
+    private val darkTheme get() = appearance.dark(resources.configuration.uiMode and
+        android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)
     private lateinit var map: RadarMap
     private lateinit var radar: LatestRadar
+    private lateinit var appearance: AppearanceSettings
     private var baseMessage by mutableStateOf<String?>("Loading base map…")
     private var styleReady by mutableStateOf(false)
     private var refreshJob: Job? = null
@@ -113,6 +116,7 @@ open class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        appearance = AppearanceSettings(this)
         map = RadarMap(this)
         map.view.onCreate(savedInstanceState)
         restored = savedInstanceState != null
@@ -132,12 +136,28 @@ open class MainActivity : ComponentActivity() {
         }
         map.onNavigationStarted = ::navigationStarted
         setContent {
-            MaterialTheme {
+            MaterialTheme(colorScheme = if (darkTheme) androidx.compose.material3.darkColorScheme()
+                else androidx.compose.material3.lightColorScheme()) {
+                val opacity = appearance.opacity
+                val speed = appearance.speed
+                androidx.compose.runtime.SideEffect {
+                    map.opacity(opacity)
+                    radar.speed = speed
+                }
                 val state by radar.state.collectAsState()
                 val tileStatus by map.status.collectAsState()
                 val coverageStatus by map.coverageStatus.collectAsState()
                 val positionState by positioning.state.collectAsState()
                 MapChrome(controls,
+                    appearance = appearance,
+                    changeTheme = { theme ->
+                        if (appearance.theme != theme) {
+                            appearance.theme(theme)
+                            // Reuse the tested camera/timeline/overlay restoration path. This also
+                            // disposes coverage and pending native work before replacing the style.
+                            recreate()
+                        }
+                    },
                     locate = { if (positionState.waiting) positioning.cancel() else positioning.locate() },
                     locating = positionState.waiting,
                     locateEnabled = styleReady,
@@ -202,7 +222,7 @@ open class MainActivity : ComponentActivity() {
                         else timeline { radar.play() }
                     }) { Text(if (state.mode == TimelineMode.PLAYING) "Pause" else "Play") }
                     Text(if (state.mode == TimelineMode.FOLLOWING) "Following latest" else
-                        if (state.mode == TimelineMode.PLAYING) "2 fps" else "Selected frame",
+                        if (state.mode == TimelineMode.PLAYING) "${appearance.speed.fps} fps" else "Selected frame",
                         modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { timeline { radar.latest() } }) { Text("Latest") }
                 }
@@ -246,7 +266,7 @@ open class MainActivity : ComponentActivity() {
                 baseMessage = "Loading base map…"
                 try {
                     val key = BuildConfig.CARTO_API_KEY
-                    map.loadStyle(baseStyleUrl())
+                    map.loadStyle(baseStyleUrl(), darkTheme)
                     if (!restored && !placeSelected) map.overview()
                     styleReady = true
                     baseMessage = if (key.isBlank()) "Base map needs the developer's CARTO key. See build instructions." else null

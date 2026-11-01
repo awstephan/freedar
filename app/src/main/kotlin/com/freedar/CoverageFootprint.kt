@@ -15,7 +15,6 @@ import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.RasterLayer
-import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.layers.PropertyFactory.rasterFadeDuration
 import org.maplibre.android.style.sources.ImageSource
@@ -77,8 +76,8 @@ internal class CoverageFootprint(
                     ensureActive()
                     style.addSource(ImageSource(tile.id, tile.bounds(), bitmap))
                     val layer = RasterLayer(tile.id, tile.id).withProperties(rasterOpacity(0.22f), rasterFadeDuration(0f))
-                    val labels = style.layers.firstOrNull { it is SymbolLayer }
-                    if (labels == null) style.addLayer(layer) else style.addLayerBelow(layer, labels.id)
+                    val reference = style.radarReferenceLayer()
+                    if (reference == null) style.addLayer(layer) else style.addLayerBelow(layer, reference)
                     displayed.add(tile)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { failed = true }

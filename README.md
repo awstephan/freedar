@@ -5,7 +5,7 @@ strip. [Issue #4](https://github.com/awstephan/freedar/issues/4) adds honest fre
 and lifecycle behavior to playback from [#3](https://github.com/awstephan/freedar/issues/3), under
 [spec #1](https://github.com/awstephan/freedar/issues/1).
 
-Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron
+Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
 target SDK are 35. There is no Play Services dependency. Foreground location
 permission is requested only when you explicitly choose **Locate**.
@@ -65,7 +65,7 @@ distribution are not configured or authorized by this slice.
   restrictions. This slice does **not** send CARTO's optional mobile-app restriction
   headers; do not enable that restriction until package/certificate headers are
   implemented and tested. Keep the key specific to Freedar.
-- The app requests the **current hosted Positron style**, not legacy v1 assets.
+- The app requests the **current hosted Positron or Dark Matter style**, not legacy v1 assets.
   CARTO's style/glyph/sprite/tile URLs can change as they update their maps; the
   network adapter attaches the project key only to `cartocdn.com` and subdomains.
 - Visible on-map links credit **OpenStreetMap contributors**, **CARTO**,
@@ -73,6 +73,12 @@ distribution are not configured or authorized by this slice.
 
 ## Behavior and boundaries
 
+- **Legend** explains RainViewer Universal Blue rain/snow reflectivity with validated
+  dBZ color samples. **Settings** offers immediate radar-opacity preview (65% default
+  and reset), System/Light/Dark for map and controls, Keep controls visible, and
+  Slow 1 / Normal 2 / Fast 4 fps playback. Choices persist. About includes version,
+  project and source links; required map attribution remains anchored on-map.
+  See [appearance semantics and storage boundary](docs/radar-appearance.md).
 - **Locate** uses Android's platform GPS/network providers for a one-shot fix,
   waiting at most 30 seconds after permission. No cached last-known position is used;
   updates older than 30 seconds are ignored. Success centers at **zoom 9** and
@@ -117,11 +123,11 @@ distribution are not configured or authorized by this slice.
 - `RadarMap` owns the native renderer. It retains the previous frame while a
   candidate loads beneath the opaque base-map background, commits only after
   native tile parsing and full rendering, and removes failed/cancelled candidates.
-  Labels are above radar. Obsolete scrub requests are cancelled and serialized;
+  Transport layers and labels are above radar. Obsolete scrub requests are cancelled and serialized;
   the timestamp changes only after the replacement is presented. Pan/zoom changes
   neither timeline mode nor selection and never recenters the map.
   Playback loads its one requested next frame under the background, then waits
-  at a presentation gate for the 500 ms step or one-second endpoint hold. Camera
+  at a presentation gate for the chosen speed's interval or one-second endpoint hold. Camera
   changes during that wait require readiness for the new viewport before exposure.
   Native tile errors remain visible; blank pixels are never called clear weather.
 - Native radar source maxzoom is **7**; camera maxzoom is **18**. Zooming closer
@@ -216,7 +222,8 @@ See [foundation validation](docs/validation/issue-2.md) and
 [playback validation](docs/validation/issue-3.md), and
 [freshness validation](docs/validation/issue-4.md), and
 [positioning validation](docs/validation/issue-6.md), and
-[offline search validation](docs/validation/issue-7.md) for actual results, limitations
+[offline search validation](docs/validation/issue-7.md), and
+[appearance validation](docs/validation/issue-8.md) for actual results, limitations
 and the remaining live-service/device checks.
 
 ## Provider contracts and reference
@@ -226,7 +233,7 @@ and the remaining live-service/device checks.
   [palette](https://www.rainviewer.com/api/color-schemes.html),
   [terms](https://www.rainviewer.com/api.html).
   Universal Blue (2), smoothing and snow enabled (`1_1`) are used. No mixed
-  precipitation classification or exact intensity legend is claimed.
+  precipitation classification or rainfall/snowfall-rate conversion is claimed.
 - [CARTO FAQ](https://docs.carto.com/faqs/carto-basemaps),
   [basemap terms](https://carto.com/legal/basemap-terms/),
   [attribution](https://carto.com/attribution/).

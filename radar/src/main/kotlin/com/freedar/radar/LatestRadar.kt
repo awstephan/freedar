@@ -36,6 +36,8 @@ fun interface RadarDisplay {
 
 enum class TimelineMode { FOLLOWING, SELECTED, PLAYING }
 
+enum class PlaybackSpeed(val fps: Int) { SLOW(1), NORMAL(2), FAST(4) }
+
 data class RadarState(
     val mode: TimelineMode = TimelineMode.FOLLOWING,
     val unavailable: Set<RadarFrame> = emptySet(),
@@ -75,6 +77,8 @@ class LatestRadar(
     val state = mutableState.asStateFlow()
     private val refreshLock = Mutex()
     private var playback: Job? = null
+    /** Changes apply to the next presentation interval; never shorten the newest hold. */
+    var speed: PlaybackSpeed = PlaybackSpeed.NORMAL
     private var presentation: Job? = null
     private val displayLock = Mutex()
     private var revision = 0L
@@ -178,7 +182,7 @@ class LatestRadar(
                 val frame = frames.firstOrNull { previous == null || it.time > previous!!.time } ?: frames.first()
                 if (!present(frame, notBefore = nextPresentation)) continue
                 previous = frame
-                val period = if (frame == frames.last()) 1000L else 500L
+                val period = if (frame == frames.last()) 1000L else 1000L / speed.fps
                 nextPresentation = monotonicMillis() + period
             }
         } finally {

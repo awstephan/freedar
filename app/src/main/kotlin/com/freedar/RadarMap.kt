@@ -38,6 +38,15 @@ class RadarMap(context: Context) : RadarDisplay {
         private set
     private lateinit var style: Style
     private var visibleId: String? = null
+    private var opacity = AppearanceSettings.DEFAULT_OPACITY
+    private var presentingId: String? = null
+
+    fun opacity(value: Float) {
+        opacity = value
+        if (!::style.isInitialized || view.isDestroyed) return
+        // During a replacement only the incoming layer is exposed; don't unhide the old one.
+        (presentingId ?: visibleId)?.let { style.getLayer(it)?.setProperties(rasterOpacity(value)) }
+    }
     private var sequence = 0
     private val mutableStatus = MutableStateFlow<String?>(null)
     val status = mutableStatus.asStateFlow()
@@ -72,7 +81,7 @@ class RadarMap(context: Context) : RadarDisplay {
     fun coverageForeground(active: Boolean) { coverage?.foreground(active) }
     fun stopCoverage() { coverage?.foreground(false); coverageObserver?.cancel() }
 
-    suspend fun loadStyle(url: String?) {
+    suspend fun loadStyle(url: String?, dark: Boolean = false) {
         nativeMap = suspendCancellableCoroutine { continuation ->
             view.getMapAsync { if (continuation.isActive) continuation.resume(it) }
         }
@@ -93,9 +102,18 @@ class RadarMap(context: Context) : RadarDisplay {
         }
         view.addOnDidFailLoadingMapListener(failure)
         try {
-            val builder = if (url == null) Style.Builder().fromJson(EMPTY_STYLE) else Style.Builder().fromUri(url)
+            val builder = if (url == null) Style.Builder().fromJson(
+                if (dark) EMPTY_STYLE.replace("#e9eeec", "#202428") else EMPTY_STYLE
+            ) else Style.Builder().fromUri(url)
             nativeMap.setStyle(builder) { loaded.complete(it) }
             style = withTimeoutOrNull(30_000) { loaded.await() } ?: throw IOException("Base map timed out")
+            if (dark) {
+                // Dark Matter's low-contrast road fills disappear against strong red echoes.
+                // Keep its dark casings and brighten transport fills above the radar.
+                style.layers.filterIsInstance<org.maplibre.android.style.layers.LineLayer>().filter {
+                    it.id.isCartoTransportLayer() && !it.id.contains("case")
+                }.forEach { it.setProperties(org.maplibre.android.style.layers.PropertyFactory.lineColor("#c3c9d1")) }
+            }
             visibleId = null
         } finally {
             view.removeOnDidFailLoadingMapListener(failure)
@@ -188,9 +206,10 @@ class RadarMap(context: Context) : RadarDisplay {
             tileFailure?.let { throw it }
             style.removeLayer(id)
             val layer = radarLayer(id)
-            val labels = style.layers.firstOrNull { it is SymbolLayer }
-            if (labels == null) style.addLayer(layer) else style.addLayerBelow(layer, labels.id)
+            val reference = style.radarReferenceLayer()
+            if (reference == null) style.addLayer(layer) else style.addLayerBelow(layer, reference)
             visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(0f)) }
+            presentingId = id
             presenting = true
             withTimeoutOrNull(30_000) { presented.await() } ?: throw IOException("Radar presentation timed out")
             visibleId?.let { removeFrame(it) }
@@ -198,18 +217,19 @@ class RadarMap(context: Context) : RadarDisplay {
             mutableStatus.value = null
             committed = true
         } finally {
+            presentingId = null
             view.removeOnTileActionListener(tiles)
             view.removeOnDidFinishRenderingFrameListener(rendered)
             nativeMap.removeOnCameraMoveListener(moved)
             if (!committed) {
                 removeFrame(id)
-                if (!view.isDestroyed) visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(0.65f)) }
+                if (!view.isDestroyed) visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(opacity)) }
             }
         }
     }
 
     private fun radarLayer(id: String) = RasterLayer(id, id)
-        .withProperties(rasterOpacity(0.65f), rasterFadeDuration(0f))
+        .withProperties(rasterOpacity(opacity), rasterFadeDuration(0f))
         .apply { rasterOpacityTransition = TransitionOptions(0, 0) }
 
     private fun removeFrame(id: String) {
@@ -223,3 +243,10 @@ class RadarMap(context: Context) : RadarDisplay {
             {"id":"background","type":"background","paint":{"background-color":"#e9eeec"}}]}"""
     }
 }
+
+/** CARTO's transport casings/fills and labels remain legible even at 100% radar opacity. */
+internal fun Style.radarReferenceLayer(): String? = layers.firstOrNull {
+    it is SymbolLayer || it.id.isCartoTransportLayer()
+}?.id
+
+private fun String.isCartoTransportLayer() = startsWith("tunnel_") || startsWith("road_") || startsWith("bridge_")

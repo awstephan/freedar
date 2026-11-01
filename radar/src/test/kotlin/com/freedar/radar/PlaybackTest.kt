@@ -25,6 +25,52 @@ class PlaybackTest {
         override suspend fun history() = frames
     }
 
+    @Test fun `speed choices change presentation cadence but newest always holds one second`() = runTest {
+        for ((speed, interval) in listOf(PlaybackSpeed.SLOW to 1000L, PlaybackSpeed.NORMAL to 500L,
+            PlaybackSpeed.FAST to 250L)) {
+            val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {},
+                monotonicMillis = { testScheduler.currentTime })
+            app.speed = speed
+            app.refresh()
+            val playing = launch { app.play() }; runCurrent()
+            advanceTimeBy(interval - 1); runCurrent()
+            assertEquals(frames[0], app.state.value.frame)
+            advanceTimeBy(1); runCurrent()
+            assertEquals(frames[1], app.state.value.frame)
+            advanceTimeBy(interval); runCurrent()
+            assertEquals(frames[2], app.state.value.frame)
+            advanceTimeBy(999); runCurrent()
+            assertEquals(frames[2], app.state.value.frame)
+            advanceTimeBy(1); runCurrent()
+            assertEquals(frames[0], app.state.value.frame)
+            app.pause(); playing.join()
+        }
+    }
+
+    @Test fun `changing speed while playing takes effect at the next interval without restarting history`() = runTest {
+        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {},
+            monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        val playing = launch { app.play() }; runCurrent()
+        app.speed = PlaybackSpeed.FAST
+        advanceTimeBy(500); runCurrent()
+        assertEquals(frames[1], app.state.value.frame)
+        advanceTimeBy(249); runCurrent()
+        assertEquals(frames[1], app.state.value.frame)
+        advanceTimeBy(1); runCurrent()
+        assertEquals(frames[2], app.state.value.frame)
+        app.speed = PlaybackSpeed.SLOW
+        advanceTimeBy(999); runCurrent()
+        assertEquals(frames[2], app.state.value.frame)
+        advanceTimeBy(1); runCurrent()
+        assertEquals(frames[0], app.state.value.frame)
+        advanceTimeBy(999); runCurrent()
+        assertEquals(frames[0], app.state.value.frame)
+        advanceTimeBy(1); runCurrent()
+        assertEquals(frames[1], app.state.value.frame)
+        app.pause(); playing.join()
+    }
+
     @Test fun `superseded refresh cannot clear loading for a newer scrub presentation`() = runTest {
         var available = frames
         val pending = CompletableDeferred<Unit>()

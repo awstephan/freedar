@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -27,6 +28,138 @@ import org.maplibre.android.geometry.LatLng
 @RunWith(AndroidJUnit4::class)
 class ControlsPlaybackTest {
     @get:Rule val compose = createEmptyComposeRule()
+
+    @Test fun themesPersistAndChangeNativeBasemapAndComposeWithoutLosingSelectionOrCamera() {
+        val preferences = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        try { withRadar { scenario ->
+            compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+            awaitText("Selected frame")
+            scenario.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -100.0), 6.0))
+            } }
+            compose.onNodeWithText("Settings").performClick()
+            compose.onNodeWithText("System").performScrollTo().assertIsSelected()
+            for ((choice, dark) in listOf("Dark" to true, "Light" to false, "System" to false)) {
+                var previous: LifecycleTestActivity? = null
+                scenario.onActivity { previous = it }
+                compose.onNodeWithText(choice).performScrollTo().performClick()
+                compose.waitUntil(10000) {
+                    var ready = false
+                    scenario.onActivity { ready = it !== previous && it.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED }
+                    ready
+                }
+                compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText(choice).performScrollTo().assertIsSelected()
+                scenario.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync { map ->
+                    val expectedDark = if (choice == "System") activity.resources.configuration.uiMode and
+                        android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES else dark
+                    val background = map.style!!.getLayerAs<org.maplibre.android.style.layers.BackgroundLayer>("background")!!
+                    val color = background.backgroundColorAsInt
+                    assertEquals(expectedDark, Color.red(color) < 128)
+                    assertEquals(40.0, map.cameraPosition.target!!.latitude, .001)
+                    assertEquals(6.0, map.cameraPosition.zoom, .001)
+                } }
+                compose.onNodeWithText("Done").performScrollTo().performClick()
+                compose.onNodeWithText("Selected frame").assertExists()
+                val image = compose.onNodeWithText("Settings").captureToImage()
+                val pixel = image.toPixelMap()[0, 0]
+                if (choice != "System") assertEquals(dark, pixel.red < .5f)
+                compose.onNodeWithText("Settings").performClick()
+            }
+            val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            val originalNight = instrumentation.targetContext.getSystemService(android.app.UiModeManager::class.java).nightMode
+            fun night(mode: String) {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation
+                    .executeShellCommand("cmd uimode night $mode")).use { it.readBytes() }
+            }
+            try {
+                for (dark in listOf(true, false)) {
+                    night(if (dark) "yes" else "no")
+                    compose.waitUntil(15000) {
+                        var applied = false
+                        scenario.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync { map ->
+                            val background = map.style?.getLayerAs<org.maplibre.android.style.layers.BackgroundLayer>("background")
+                            applied = background != null && (Color.red(background.backgroundColorAsInt) < 128) == dark
+                        } }
+                        applied
+                    }
+                    compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                    compose.onNodeWithText("System").performScrollTo().assertIsSelected()
+                    compose.onNodeWithText("Done").performScrollTo().performClick()
+                    val pixel = compose.onNodeWithText("Settings").captureToImage().toPixelMap()[0, 0]
+                    assertEquals(dark, pixel.red < .5f)
+                    compose.onNodeWithText("Settings").performClick()
+                }
+            } finally { night(when (originalNight) { android.app.UiModeManager.MODE_NIGHT_YES -> "yes"; android.app.UiModeManager.MODE_NIGHT_NO -> "no"; else -> "auto" }) }
+        } } finally { preferences.edit().clear().commit() }
+    }
+
+    @Test fun legendAndSettingsStayOpenAcrossTimeoutAndLargeTextRotationWithCredits() = withLargeText {
+        withRadar { scenario ->
+            compose.onNodeWithText("Legend").performScrollTo().performClick()
+            for (orientation in listOf(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)) {
+                compose.rotateAndWait(scenario, orientation)
+                compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                Thread.sleep(5500)
+                compose.onNodeWithText("Rain · dBZ samples").performScrollTo().assertIsDisplayed()
+                val rain = compose.onNodeWithContentDescription("Rain, 35 dBZ").performScrollTo().captureToImage().toPixelMap()[10, 10]
+                assertEquals(1f, rain.red, .01f)
+                assertEquals(238f / 255f, rain.green, .01f)
+                assertEquals(0f, rain.blue, .01f)
+                compose.onNodeWithText("Snow · dBZ samples").performScrollTo().assertIsDisplayed()
+                val snow = compose.onNodeWithContentDescription("Snow, 35 dBZ").performScrollTo().captureToImage().toPixelMap()[10, 10]
+                assertEquals(63f / 255f, snow.red, .01f)
+                assertEquals(127f / 255f, snow.green, .01f)
+                assertEquals(1f, snow.blue, .01f)
+                compose.onNodeWithText("Frame time", substring = true).assertIsDisplayed()
+                compose.onNodeWithText("Blank radar does not mean clear weather.", substring = true).assertIsDisplayed()
+                compose.onNodeWithText("Places: GeoNames", substring = true).assertIsDisplayed()
+            }
+            compose.onNodeWithText("Close legend").performScrollTo().performClick()
+            compose.onNodeWithText("Settings").performScrollTo().performClick()
+            Thread.sleep(5500)
+            compose.onNodeWithText("About Freedar").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Version ${BuildConfig.VERSION_NAME}").assertExists()
+            compose.onNodeWithText("GitHub project").assertExists()
+            compose.onNodeWithText("GeoNames · CC BY 4.0", substring = true).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Done").performScrollTo().performClick()
+        }
+    }
+
+    @Test fun opacityPreviewsOnRadarPersistsAndResetsWhileSpeedReachesPlayback() {
+        val preferences = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        try { withRadar { scenario ->
+            fun assertOpacity(expected: Float) {
+                scenario.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync { map ->
+                    val radar = map.style!!.layers.filterIsInstance<org.maplibre.android.style.layers.RasterLayer>()
+                        .last { it.id.startsWith("radar-") }
+                    assertEquals(expected, radar.rasterOpacity.value!!, .001f)
+                } }
+            }
+            assertOpacity(.65f)
+            compose.onNodeWithText("Settings").performClick()
+            compose.onNodeWithContentDescription("Radar opacity").performScrollTo()
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.3f) }
+            compose.waitForIdle()
+            assertOpacity(.3f)
+            compose.onNodeWithText("Fast · 4 fps").performScrollTo().performClick()
+            scenario.recreate()
+            compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            assertOpacity(.3f)
+            compose.onNodeWithText("Fast · 4 fps").performScrollTo().assertIsSelected()
+            compose.onNodeWithText("Reset opacity to 65%").performScrollTo().performClick()
+            compose.waitForIdle()
+            assertOpacity(.65f)
+            compose.onNodeWithText("Done").performScrollTo().performClick()
+            compose.onNodeWithText("Play").performScrollTo().performClick()
+            compose.onNodeWithText("4 fps").assertExists()
+        } } finally { preferences.edit().clear().commit() }
+    }
 
     @Test fun searchEmptyResultsAndRecreationKeepManualNavigationAndLargeTextContext() = withLargeText {
         withRadar { scenario ->

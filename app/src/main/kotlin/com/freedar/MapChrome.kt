@@ -5,12 +5,10 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -47,6 +45,8 @@ fun MapChrome(
     locating: Boolean = false,
     locateEnabled: Boolean = true,
     selectPlace: ((Place) -> Unit)? = null,
+    appearance: AppearanceSettings,
+    changeTheme: (MapTheme) -> Unit,
 ) {
     val context = LocalContext.current
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -54,6 +54,7 @@ fun MapChrome(
     var persistent by remember { mutableStateOf(preferences.getBoolean("persistent", false)) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var legendOpen by rememberSaveable { mutableStateOf(false) }
     var searchState by rememberSaveable(stateSaver = PlaceSearchState.Saver) { mutableStateOf(PlaceSearchState()) }
     val accessibility = remember { context.getSystemService(AccessibilityManager::class.java) }
     DisposableEffect(accessibility) {
@@ -64,7 +65,7 @@ fun MapChrome(
         accessibility.addTouchExplorationStateChangeListener(listener)
         onDispose { accessibility.removeTouchExplorationStateChangeListener(listener) }
     }
-    val overlayOpen = settingsOpen || searchOpen
+    val overlayOpen = settingsOpen || searchOpen || legendOpen
     SideEffect {
         controls.hold(ControlsHold.LOCATING, locating)
         controls.hold(ControlsHold.PERSISTENT, persistent)
@@ -99,10 +100,18 @@ fun MapChrome(
         Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(8.dp)) {
             val transient: @Composable () -> Unit = {
                 if (controls.visible) {
-                    if (searchOpen && selectPlace != null) {
+                    if (settingsOpen) {
+                        SettingsSurface(appearance, persistent, {
+                            persistent = it
+                            preferences.edit().putBoolean("persistent", it).apply()
+                        }, changeTheme, dismiss = { settingsOpen = false })
+                    } else if (legendOpen) {
+                        LegendSurface { legendOpen = false }
+                    } else if (searchOpen && selectPlace != null) {
                         PlaceSearchSurface(searchState, selectPlace, dismiss = { searchOpen = false })
                     } else {
                         MapActions(settings = { settingsOpen = true }, locate = locate,
+                            legend = { legendOpen = true },
                             search = selectPlace?.let { { searchState = PlaceSearchState(); searchOpen = true } },
                             locating = locating, locateEnabled = locateEnabled)
                         playback()
@@ -133,23 +142,6 @@ fun MapChrome(
                 }
             }
         }
-    }
-    if (settingsOpen) {
-        AlertDialog(
-            onDismissRequest = { settingsOpen = false },
-            title = { Text("Map controls") },
-            text = {
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .toggleable(persistent, role = Role.Switch) {
-                        persistent = it
-                        preferences.edit().putBoolean("persistent", it).apply()
-                    }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Keep controls visible", Modifier.weight(1f))
-                    Switch(checked = persistent, onCheckedChange = null)
-                }
-            },
-            confirmButton = { TextButton(onClick = { settingsOpen = false }) { Text("Done") } },
-        )
     }
 }
 
