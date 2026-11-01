@@ -8,6 +8,8 @@ import org.maplibre.android.MapLibre
 class FreedarApplication : Application() {
     lateinit var imagery: DownloadedImagery
         private set
+    lateinit var radarArchive: RadarArchive
+        private set
     val processSession = java.util.UUID.randomUUID().toString()
     lateinit var httpClient: OkHttpClient
         private set
@@ -16,11 +18,12 @@ class FreedarApplication : Application() {
         super.onCreate()
         MapLibre.getInstance(this)
         imagery = DownloadedImagery(java.io.File(cacheDir, "downloaded-imagery"))
-        httpClient = configureMapNetwork(this, BuildConfig.CARTO_API_KEY, imagery)
+        radarArchive = RadarArchive(imagery)
+        httpClient = configureMapNetwork(this, BuildConfig.CARTO_API_KEY, imagery, radarArchive)
         val scheduler = getSystemService(android.app.job.JobScheduler::class.java)
-        if (scheduler.getPendingJob(IMAGERY_EXPIRY_JOB_ID) == null) scheduler.schedule(android.app.job.JobInfo.Builder(IMAGERY_EXPIRY_JOB_ID,
+        if (scheduler.getPendingJob(IMAGERY_EXPIRY_JOB_ID)?.intervalMillis != 15 * 60 * 1000L) scheduler.schedule(android.app.job.JobInfo.Builder(IMAGERY_EXPIRY_JOB_ID,
             android.content.ComponentName(this, ImageryExpiryJob::class.java))
-            .setPeriodic(6 * 60 * 60 * 1000L).setPersisted(true).build())
+            .setPeriodic(15 * 60 * 1000L).setPersisted(true).build())
     }
     private companion object { const val IMAGERY_EXPIRY_JOB_ID = 9 }
 }

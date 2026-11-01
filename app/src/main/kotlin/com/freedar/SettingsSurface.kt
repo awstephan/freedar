@@ -79,7 +79,7 @@ fun SettingsSurface(settings: AppearanceSettings, persistent: Boolean, persist: 
             SourceLink("Places: GeoNames · CC BY 4.0", "https://www.geonames.org/")
             SourceLink("GeoNames license", "https://creativecommons.org/licenses/by/4.0/")
             Text("Downloaded imagery", style = MaterialTheme.typography.titleMedium)
-            Text("Recently viewed base map · up to 100 MB, at most 30 days. Offline radar downloads await provider permission. Missing imagery does not mean clear weather.",
+            Text("Downloaded map and radar · up to 100 MB total. Radar expires two hours after its frame time; base map within 30 days. Missing imagery does not mean clear weather.",
                 style = MaterialTheme.typography.bodySmall)
             TextButton(enabled = !clearing, onClick = {
                 clearing = true

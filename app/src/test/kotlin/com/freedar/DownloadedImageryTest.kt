@@ -5,6 +5,40 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DownloadedImageryTest {
+    @Test fun `previous CARTO cache format survives upgrade without extending receipt time`() {
+        val root = Files.createTempDirectory("imagery-upgrade").toFile()
+        try {
+            val name = java.security.MessageDigest.getInstance("SHA-256").digest("legacy".toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            // v1 fixture: receipt=1000, content-type=x, payload=abc.
+            java.io.File(root, name).writeBytes(byteArrayOf(0, 0, 0, 0, 0, 0, 3, -24, 0, 1, 120, 97, 98, 99))
+            var now = 1000L + 28 * 86400000L
+            val upgraded = DownloadedImagery(root, { now })
+            assertEquals("abc", String(upgraded.get("legacy")!!.bytes))
+            now += 86400000L
+            upgraded.prune()
+            assertTrue(root.listFiles()!!.isEmpty())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun `radar expiry uses frame deadline while base map remains in the shared store`() {
+        val root = Files.createTempDirectory("imagery").toFile()
+        var now = 10_000_000L
+        try {
+            val store = DownloadedImagery(root, { now })
+            store.put("base", "map", byteArrayOf(1), store.generation())
+            // Already 110 minutes old when received: only ten minutes remain.
+            store.put("radar", "radar", byteArrayOf(2), store.generation(), expiresAtMillis = now + 600_000)
+            now += 599_999
+            assertNotNull(DownloadedImagery(root, { now }).get("radar"))
+            now++
+            val reopened = DownloadedImagery(root, { now })
+            assertNull(reopened.get("radar"))
+            assertNotNull(reopened.get("base"))
+            assertEquals(1, root.listFiles()!!.size)
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun `maintenance deletes expired unrequested entries and rollback cannot extend retention`() {
         val root = Files.createTempDirectory("imagery").toFile()
         var now = 1000L
@@ -25,24 +59,24 @@ class DownloadedImageryTest {
         val root = Files.createTempDirectory("imagery").toFile()
         var now = 1000L
         try {
-            val store = DownloadedImagery(root, { now }, capacity = 60)
+            val store = DownloadedImagery(root, { now }, capacity = 100)
             store.put("a", "x", ByteArray(10), store.generation())
             now++
             store.put("b", "x", ByteArray(10), store.generation())
             now++
             store.get("a")
             now++
-            val reopened = DownloadedImagery(root, { now }, capacity = 60)
+            val reopened = DownloadedImagery(root, { now }, capacity = 100)
             reopened.put("c", "x", ByteArray(10), reopened.generation())
             assertNull(reopened.get("b"))
             assertNotNull(reopened.get("a"))
             assertNotNull(reopened.get("c"))
             now++
-            reopened.put("huge", "x", ByteArray(61), reopened.generation())
+            reopened.put("huge", "x", ByteArray(101), reopened.generation())
             assertNotNull(reopened.get("a"))
             assertNotNull(reopened.get("c"))
             assertNull(reopened.get("huge"))
-            assertTrue(reopened.size() <= 60)
+            assertTrue(reopened.size() <= 100)
         } finally { root.deleteRecursively() }
     }
 

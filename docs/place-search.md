@@ -98,7 +98,7 @@ involved. Extraction requires space for the installed database in addition to th
 **Clear downloaded data targets imagery storage only**, never deletes
 `noBackupFilesDir` wholesale. The packaged asset and its installed derivative are
 application resources, not downloaded imagery. CARTO device reuse is now bounded by
-the [imagery store](downloaded-imagery.md); radar persistence remains blocked.
+the [imagery store](downloaded-imagery.md), shared with two-hour radar persistence.
 Device checks also remove the Android cache directory between offline queries.
 Android's system Clear storage/uninstall can delete the extracted copy; the next
 search can reconstruct it offline from the APK.

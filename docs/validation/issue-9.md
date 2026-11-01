@@ -1,5 +1,10 @@
 # Issue #9 implementation validation
 
+**Historical initial delivery:** this note records the work through `087a1aa`.
+The subsequent maintainer permission confirmation and radar-persistence completion
+are documented in [issue-9-radar.md](issue-9-radar.md), which supersedes the blocked
+status recorded below.
+
 Scope: [Remembered view and bounded offline imagery](https://github.com/awstephan/freedar/issues/9).
 Review baseline: `620564b`. Session: 2026-11-01.
 

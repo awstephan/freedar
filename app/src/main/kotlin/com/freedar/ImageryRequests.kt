@@ -8,14 +8,21 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 
-/** Viewport-driven CARTO reuse only; no downloads are initiated by the store. */
+/** Provider-gated device reuse; no downloads are initiated by the store. */
 class ImageryRequests(private val store: DownloadedImagery,
-    private val permitted: (HttpUrl) -> Boolean = { it.isCarto() }) : Interceptor {
+    private val permitted: (HttpUrl) -> Boolean = { it.isCarto() },
+    private val radar: RadarArchive? = null) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val allowed = request.method == "GET" && permitted(request.url) &&
+        val radarExpiry = radar?.retentionDeadlineForRegisteredTile(request.url)
+        val allowed = request.method == "GET" && (permitted(request.url) || radarExpiry != null) &&
             request.header("Accept-Encoding") == null
         val generation = store.generation()
+        // Immutable radar frame URLs reuse bytes before request budgets or network I/O.
+        if (allowed && radarExpiry != null && !chain.call().isCanceled()) retained(request)?.let { return it }
+        if (allowed && radarExpiry != null && radar?.retainedOnly == true) {
+            throw java.io.IOException("Radar viewport was not downloaded. Missing imagery does not mean clear weather.")
+        }
         // Online requests always consult the provider. On transport failure, recently
         // viewed bytes may supply geographic context, never a claim of current weather.
         val response = try { chain.proceed(request) } catch (failure: java.io.IOException) {
@@ -23,7 +30,7 @@ class ImageryRequests(private val store: DownloadedImagery,
             if (allowed) retained(request)?.let { return it }
             throw failure
         }
-        val retainable = permitted(response.request.url) &&
+        val retainable = (if (radarExpiry != null) response.request.url == request.url else permitted(response.request.url)) &&
             !response.cacheControl.noStore && !response.cacheControl.noCache && !response.cacheControl.mustRevalidate &&
             response.headers.values("Vary").flatMap { it.split(',') }
                 .all { it.trim().equals("Accept-Encoding", ignoreCase = true) }
@@ -41,7 +48,8 @@ class ImageryRequests(private val store: DownloadedImagery,
                     throw failure
                 }
             if (bytes.size <= 8_000_000) {
-                try { store.put(request.url.toString(), response.body?.contentType()?.toString().orEmpty(), bytes, generation) }
+                try { store.put(request.url.toString(), response.body?.contentType()?.toString().orEmpty(), bytes, generation,
+                    expiresAtMillis = radarExpiry ?: Long.MAX_VALUE) }
                 catch (_: java.io.IOException) { /* Disk full: network imagery is still usable. */ }
             }
         }

@@ -9,6 +9,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ImageryRequestsTest {
+    @Test fun `registered radar tiles reuse disk before network budget and expire with original frame time`() {
+        val root = Files.createTempDirectory("radar-http").toFile()
+        var now = 20_000_000L
+        MockWebServer().use { server ->
+            try {
+                val frame = com.freedar.radar.RadarFrame(java.time.Instant.ofEpochMilli(now - 6_600_000),
+                    "${server.url("/opaque/")}256/{z}/{x}/{y}/2/1_1.png")
+                val store = DownloadedImagery(root, { now })
+                val archive = RadarArchive(store, { now })
+                archive.remember(listOf(frame), store.generation())
+                val request = Request.Builder().url(server.url("/opaque/256/1/0/1/2/1_1.png")).build()
+                fun client(storage: DownloadedImagery, catalog: RadarArchive) = OkHttpClient.Builder()
+                    .addInterceptor(ImageryRequests(storage, radar = catalog))
+                    .build()
+                server.enqueue(MockResponse().setBody("original frame pixels"))
+                client(store, archive).newCall(request).execute().close()
+                val reopened = DownloadedImagery(root, { now })
+                val offline = client(reopened, RadarArchive(reopened, { now }))
+                offline.newCall(request).execute().use { assertEquals("original frame pixels", it.body!!.string()) }
+                assertEquals(1, server.requestCount)
+                server.shutdown()
+                now += 600_000
+                assertThrows(java.io.IOException::class.java) { offline.newCall(request).execute() }
+                assertEquals(0L, reopened.size())
+            } finally { root.deleteRecursively() }
+        }
+    }
+
     @Test fun `connection loss after response headers can still reuse retained imagery`() {
         val root = Files.createTempDirectory("imagery-http").toFile()
         MockWebServer().use { server ->

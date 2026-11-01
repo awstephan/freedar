@@ -81,7 +81,9 @@ open class MainActivity : ComponentActivity() {
     /** Shared entry point for map gestures and search-selection navigation. */
     fun navigationStarted() { positioning.navigationStarted() }
     protected open fun elapsedMillis(): Long = SystemClock.elapsedRealtime()
-    protected open fun radarProvider(): RadarProvider = RainViewer((application as FreedarApplication).httpClient)
+    protected open fun radarProvider(): RadarProvider = (application as FreedarApplication).let {
+        RetainedRadarProvider(RainViewer(it.httpClient), it.radarArchive)
+    }
     protected open fun baseStyleUrl(): String? = if (BuildConfig.CARTO_API_KEY.isBlank()) null else
         "https://basemaps.cartocdn.com/gl/${if (darkTheme) "dark-matter" else "positron"}-gl-style/style.json"
     private val darkTheme get() = appearance.dark(resources.configuration.uiMode and
@@ -318,6 +320,7 @@ open class MainActivity : ComponentActivity() {
                     val notices = listOfNotNull(
                         "Stale feed".takeIf { state.stale },
                         "Offline".takeIf { state.offline },
+                        "Saved radar".takeIf { state.retainedHistory },
                         "Refresh failed".takeIf { state.error != null },
                         "Updating".takeIf { state.loading && frame != null },
                         "Base map notice".takeIf { base != null },
@@ -335,6 +338,7 @@ open class MainActivity : ComponentActivity() {
                         }
                         if (state.stale) Text("Stale radar feed", style = MaterialTheme.typography.bodySmall)
                         if (state.offline) Text("Offline · retained imagery is not live", style = MaterialTheme.typography.bodySmall)
+                        if (state.retainedHistory) Text("Saved radar · original frame time, not live data", style = MaterialTheme.typography.bodySmall)
                         if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
                         listOfNotNull(base, state.error, tiles).forEach {
                             Text(it, style = MaterialTheme.typography.bodySmall)

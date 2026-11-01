@@ -20,6 +20,8 @@ data class RadarFrame(val time: Instant, val tileTemplate: String)
 fun interface RadarProvider {
     suspend fun latest(): RadarFrame
     suspend fun history(): List<RadarFrame> = listOf(latest())
+    /** Previously received descriptors, with original times; never a successful live refresh. */
+    suspend fun retainedHistory(): List<RadarFrame> = emptyList()
 }
 
 /** Completes after presentation; failure/cancellation must retain the preceding frame. */
@@ -50,6 +52,7 @@ data class RadarState(
     val refreshError: String? = null,
     val imageError: String? = null,
     val offline: Boolean = false,
+    val retainedHistory: Boolean = false,
     val ageSeconds: Long = 0,
     val newestFrameTime: Instant? = null,
     val newestAgeSeconds: Long = 0,
@@ -211,8 +214,14 @@ class LatestRadar(
     suspend fun latest() {
         pause()
         mutableState.value = state.value.copy(mode = TimelineMode.FOLLOWING)
-        val frame = state.value.frames.lastOrNull() ?: return
-        present(frame)
+        showLatest()
+    }
+
+    private suspend fun showLatest() {
+        val frames = state.value.frames
+        if (state.value.retainedHistory) {
+            for (frame in frames.asReversed()) if (present(frame)) break
+        } else frames.lastOrNull()?.let { present(it) }
     }
 
     suspend fun refresh(retryDisplayed: Boolean = false) {
@@ -220,18 +229,27 @@ class LatestRadar(
         fetching = true
         updateLoading()
         try {
-            val returned = provider.history().distinctBy { it.time }.sortedBy { it.time }
+            var retained = false
+            val history = try { provider.history() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) {
+                    retained = true
+                    provider.retainedHistory().ifEmpty { throw failure }
+                }
+            val returned = history.distinctBy { it.time }.sortedBy { it.time }
             val frame = returned.last()
             val frames = returned.filter { it.time >= frame.time.minusSeconds(7200) }
             val newestChanged = frame.time != state.value.newestFrameTime
             val retrySelection = state.value.selection?.takeIf {
                 state.value.mode == TimelineMode.SELECTED && (retryDisplayed || it in state.value.unavailable)
             }
-            mutableState.value = state.value.copy(frames = frames, newestFrameTime = frame.time, refreshError = null,
+            mutableState.value = state.value.copy(frames = frames, newestFrameTime = frame.time,
+                retainedHistory = retained,
+                refreshError = if (retained) "Radar refresh failed. Showing saved radar, not live data." else null,
                 unavailable = emptySet())
             updateAge()
             if (state.value.mode == TimelineMode.FOLLOWING) {
-                present(frame)
+                showLatest()
             } else if (state.value.frame == null && state.value.selection != null) {
                 present(requireNotNull(state.value.selection))
             } else if (retrySelection != null) {

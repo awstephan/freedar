@@ -66,9 +66,9 @@ the required persistent linked map credits.
 
 ## Downloaded-imagery integration
 
-Settings provides **Clear downloaded data**, backed by the bounded CARTO imagery
+Settings provides **Clear downloaded data**, backed by the shared bounded map/radar imagery
 store. See [downloaded-imagery.md](downloaded-imagery.md) for permission, retention,
-capacity and offline limits. RainViewer persistence remains blocked. Clear does not
+capacity and offline limits. Radar expires two hours after its original frame time. Clear does not
 target preferences, remembered view, the whole app cache, or `noBackupFilesDir`.
 
 The bundled GeoNames asset and `noBackupFilesDir/place-search/places-v1.sqlite` are

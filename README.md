@@ -166,7 +166,7 @@ distribution are not configured or authorized by this slice.
   all load within one minute. Failed frames are skipped until refresh/retry;
   loaded frames can continue playing through backoff.
   The client and limiter live at application scope, preserving backoff on rotation.
-- CARTO resources use a separate 100 MB LRU device store with retention deletion
+- CARTO resources and radar share a 100 MB LRU device store with retention deletion
   and Settings → Clear downloaded data. See [downloaded imagery](docs/downloaded-imagery.md).
   OkHttp has no second disk cache; native responses are marked no-store and
   MapLibre's ambient cache maximum is zero. In-memory
@@ -174,7 +174,9 @@ distribution are not configured or authorized by this slice.
   expiring after 15 minutes (individual entries capped at 512 KiB). The renderer
   holds only the visible frame and one candidate, rather than a source per history
   frame. Warm playback reuses downloaded bytes, not a freshly downloaded sequence.
-  Persistent offline **radar** retention still awaits permission. Fresh launches
+  Radar pixels and frame descriptors expire two hours after original frame time;
+  saved-history fallback preserves actual time and failed-refresh/offline/stale notices.
+  Fresh launches
   restore remembered center/zoom and start latest paused/following; theme and
   orientation recreation preserve the existing timeline behavior.
 
@@ -249,9 +251,10 @@ and the remaining live-service/device checks.
   legacy style, hardcoded radar host, camera zoom cap, and transparent-success
   substitution on HTTP failures are not used here.
 
-**Open permission questions:** RainViewer's introduction mentions small-scale
-community use while the terms emphasize personal/educational use. Public APK
-distribution and persistent caching/preloading need confirmation from
-`support@rainviewer.com`; no inquiry has been sent. CARTO permits limited device
-caching under its terms, implemented in the bounded device imagery store. A build
-or rendering test cannot resolve those permission questions.
+**Permission record:** On 2026-11-01 the maintainer confirmed approval for RainViewer
+caching, preloading and distribution subject to the published site terms, with no
+additional restrictions. Radar storage uses a two-hour frame-based retention window.
+This is maintainer-confirmed permission, not independently inspected correspondence;
+see [downloaded imagery](docs/downloaded-imagery.md). CARTO retains its separate
+device-cache limits. Public release authorization, source licensing and integrated
+validation remain release decisions under #10.

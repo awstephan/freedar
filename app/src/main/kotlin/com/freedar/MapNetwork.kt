@@ -11,22 +11,22 @@ import org.maplibre.android.module.http.HttpRequestUtil
 import org.maplibre.android.offline.OfflineManager
 
 /** Direct device requests, bounded concurrency, provider-gated device storage. */
-fun configureMapNetwork(context: Context, cartoKey: String, imagery: DownloadedImagery): OkHttpClient {
+fun configureMapNetwork(context: Context, cartoKey: String, imagery: DownloadedImagery, radar: RadarArchive): OkHttpClient {
     val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .callTimeout(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
-        .addInterceptor(RadarTileRequests(isRadarTile = { it.encodedPath.endsWith(".png") && !it.isCarto() }))
         .addInterceptor(CartoRequests(cartoKey))
-        .addInterceptor(ImageryRequests(imagery))
+        .addInterceptor(ImageryRequests(imagery, radar = radar))
+        .addInterceptor(RadarTileRequests(isRadarTile = { it.encodedPath.endsWith(".png") && !it.isCarto() }))
         .build()
     client.dispatcher.maxRequests = 8
     client.dispatcher.maxRequestsPerHost = 4
     HttpRequestUtil.setOkHttpClient(client)
     HttpRequestUtil.setLogEnabled(false)
-    // Persistence permission is unresolved; enforce zero native ambient disk cache,
-    // not just an absent OkHttp cache. Current viewport textures remain in memory.
+    // Only the provider-gated store may persist imagery or native caching would bypass
+    // retention and aggregate capacity. Current viewport textures remain in memory.
     OfflineManager.getInstance(context).setMaximumAmbientCacheSize(0, null)
     return client
 }
