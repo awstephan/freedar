@@ -67,8 +67,11 @@ class MapControlsRenderingTest {
             ActivityScenario.launch(LifecycleTestActivity::class.java).use {
                 Thread.sleep(5500)
                 compose.onNodeWithText("Settings").assertIsDisplayed()
+                // Timeout visibility and provider readiness are independent. Await the
+                // exported failure action before asserting its order in a fresh tree.
+                accessibleNode("Retry")
                 val readingOrder = accessibilityNodes(automation.rootInActiveWindow).map { it.text?.toString() }
-                assertTrue("Status action precedes map controls", readingOrder.indexOf("Retry") in 0 until readingOrder.indexOf("Settings"))
+                assertTrue("Status action precedes map controls: $readingOrder", readingOrder.indexOf("Retry") in 0 until readingOrder.indexOf("Settings"))
                 compose.waitUntil(30000) { compose.onAllNodes(hasText("Locate") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
                 val locate = accessibleButton("Locate")
                 assertTrue(locate.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))

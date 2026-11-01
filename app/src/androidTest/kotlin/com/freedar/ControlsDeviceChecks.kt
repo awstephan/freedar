@@ -39,6 +39,17 @@ fun ComposeTestRule.revealMapControls() {
     onNodeWithContentDescription("Weather map").performSemanticsAction(SemanticsActions.OnClick) { it() }
 }
 
+/** Each local provider fixture gets its own budget; recreation within it keeps that budget. */
+fun withFreshMapRequestBudget(test: () -> Unit) {
+    val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as FreedarApplication
+    val client = app.httpClient.newBuilder().apply {
+        interceptors().removeAll { it is com.freedar.radar.RadarTileRequests }
+        interceptors().add(0, com.freedar.radar.RadarTileRequests())
+    }.build()
+    org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(client)
+    try { test() } finally { org.maplibre.android.module.http.HttpRequestUtil.setOkHttpClient(app.httpClient) }
+}
+
 fun withLargeText(test: () -> Unit) {
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val original = Settings.System.getFloat(instrumentation.targetContext.contentResolver, "font_scale", 1f)

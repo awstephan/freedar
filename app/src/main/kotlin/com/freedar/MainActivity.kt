@@ -89,12 +89,13 @@ open class MainActivity : ComponentActivity() {
     private lateinit var map: RadarMap
     private lateinit var radar: LatestRadar
     private lateinit var appearance: AppearanceSettings
+    private lateinit var rememberedView: RememberedView
+    private var cameraReady = false
     private var baseMessage by mutableStateOf<String?>("Loading base map…")
     private var styleReady by mutableStateOf(false)
     private var refreshJob: Job? = null
     private var timelineJob: Job? = null
     private var restored = false
-    private var placeSelected = false
     private var recreationState: RadarState? = null
     private var stateBeforeStop: RadarState? = null
     private var returning = true
@@ -117,19 +118,31 @@ open class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appearance = AppearanceSettings(this)
+        rememberedView = RememberedView(this)
         map = RadarMap(this)
         map.view.onCreate(savedInstanceState)
-        restored = savedInstanceState != null
-        val selection = savedInstanceState?.getString("radarPath")?.let {
+        val session = (application as FreedarApplication).processSession
+        restored = savedInstanceState?.getString("processSession") == session
+        val timelineState = savedInstanceState?.takeIf { restored }
+        map.view.getMapAsync { native ->
+            if (!restored) {
+                val camera = rememberedView.read()
+                if (camera != null) native.moveCamera(org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(camera))
+                else map.overview(native)
+            }
+            cameraReady = true
+            native.addOnCameraIdleListener { rememberedView.save(native.cameraPosition) }
+        }
+        val selection = timelineState?.getString("radarPath")?.let {
             RadarFrame(Instant.ofEpochSecond(savedInstanceState.getLong("radarTime")), it)
         }
-        val mode = savedInstanceState?.getString("radarMode")?.let { name ->
+        val mode = timelineState?.getString("radarMode")?.let { name ->
             TimelineMode.entries.firstOrNull { it.name == name }
         } ?: TimelineMode.FOLLOWING
         radar = LatestRadar(radarProvider(), Clock.systemUTC(), map,
             monotonicMillis = ::elapsedMillis,
             restoredSelection = selection, restoredMode = mode,
-            restoredAwaySince = savedInstanceState?.takeIf { it.containsKey("radarAway") }?.getLong("radarAway"))
+            restoredAwaySince = timelineState?.takeIf { it.containsKey("radarAway") }?.getLong("radarAway"))
         positioning = OneShotPositioning(positionSource()) { position ->
             map.centerLocal(position)
             timeline { radar.latest() }
@@ -163,7 +176,6 @@ open class MainActivity : ComponentActivity() {
                     locateEnabled = styleReady,
                     selectPlace = { place ->
                         navigationStarted()
-                        placeSelected = true
                         map.centerLocal(place.position)
                         timeline { radar.latest() }
                     },
@@ -185,6 +197,10 @@ open class MainActivity : ComponentActivity() {
                 var elapsed = 0
                 try {
                     while (true) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            try { (application as FreedarApplication).imagery.prune() }
+                            catch (_: java.io.IOException) { /* Failed entries cannot be served past expiry. */ }
+                        }
                         radar.updateAge()
                         delay(30_000)
                         elapsed += 30
@@ -267,7 +283,6 @@ open class MainActivity : ComponentActivity() {
                 try {
                     val key = BuildConfig.CARTO_API_KEY
                     map.loadStyle(baseStyleUrl(), darkTheme)
-                    if (!restored && !placeSelected) map.overview()
                     styleReady = true
                     baseMessage = if (key.isBlank()) "Base map needs the developer's CARTO key. See build instructions." else null
                 } catch (cancelled: CancellationException) {
@@ -374,6 +389,7 @@ open class MainActivity : ComponentActivity() {
     }
     override fun onResume() { super.onResume(); map.view.onResume() }
     override fun onPause() {
+        if (cameraReady) map.view.getMapAsync { rememberedView.save(it.cameraPosition) }
         // Capture before API-29+ lifecycle pre-stop callbacks can pause playback.
         stateBeforeStop = radar.state.value
         map.view.onPause(); super.onPause()
@@ -389,6 +405,7 @@ open class MainActivity : ComponentActivity() {
     override fun onDestroy() { map.stopCoverage(); map.view.onDestroy(); super.onDestroy() }
     override fun onLowMemory() { super.onLowMemory(); map.view.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("processSession", (application as FreedarApplication).processSession)
         map.view.onSaveInstanceState(outState)
         val state = recreationState ?: if (isChangingConfigurations) stateBeforeStop ?: radar.state.value
             else radar.state.value

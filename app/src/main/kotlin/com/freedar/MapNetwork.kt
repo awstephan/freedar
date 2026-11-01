@@ -10,8 +10,8 @@ import okhttp3.Response
 import org.maplibre.android.module.http.HttpRequestUtil
 import org.maplibre.android.offline.OfflineManager
 
-/** Direct device requests, bounded concurrency, no disk cache or automatic retry loops. */
-fun configureMapNetwork(context: Context, cartoKey: String): OkHttpClient {
+/** Direct device requests, bounded concurrency, provider-gated device storage. */
+fun configureMapNetwork(context: Context, cartoKey: String, imagery: DownloadedImagery): OkHttpClient {
     val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -19,6 +19,7 @@ fun configureMapNetwork(context: Context, cartoKey: String): OkHttpClient {
         .retryOnConnectionFailure(false)
         .addInterceptor(RadarTileRequests(isRadarTile = { it.encodedPath.endsWith(".png") && !it.isCarto() }))
         .addInterceptor(CartoRequests(cartoKey))
+        .addInterceptor(ImageryRequests(imagery))
         .build()
     client.dispatcher.maxRequests = 8
     client.dispatcher.maxRequestsPerHost = 4
@@ -30,15 +31,12 @@ fun configureMapNetwork(context: Context, cartoKey: String): OkHttpClient {
     return client
 }
 
-private fun HttpUrl.isCarto() = host == "cartocdn.com" || host.endsWith(".cartocdn.com")
-
 private class CartoRequests(private val cartoKey: String) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val carto = original.url.isCarto()
         val request = if (carto) original.newBuilder().url(original.url.newBuilder()
             .setQueryParameter("key", cartoKey).build()).build() else original
-        val response = chain.proceed(request)
-        return response.newBuilder().header("Cache-Control", "no-store").build()
+        return chain.proceed(request)
     }
 }

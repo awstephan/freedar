@@ -128,10 +128,10 @@ class RadarMap(context: Context) : RadarDisplay {
         }
     }
 
-    fun overview() {
+    fun overview(map: MapLibreMap = nativeMap) {
         // Include the Aleutians across the antimeridian (172 E == -188 W), Hawaii,
         // northern Alaska and the eastern contiguous states. No navigation bounds.
-        nativeMap.moveCamera(CameraUpdateFactory.newLatLngBounds(
+        map.moveCamera(CameraUpdateFactory.newLatLngBounds(
             LatLngBounds.from(72.0, -66.0, 18.0, -188.0), 36,
         ))
     }

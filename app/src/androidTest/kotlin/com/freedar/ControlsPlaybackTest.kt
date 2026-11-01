@@ -29,6 +29,89 @@ import org.maplibre.android.geometry.LatLng
 class ControlsPlaybackTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    /** Run seed and verify in separate instrumentation processes, with force-stop between. */
+    @Test fun rememberedViewAcrossRealProcessRestart() {
+        val phase = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("processCheck")
+        org.junit.Assume.assumeTrue(phase == "seed" || phase == "verify")
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val app = context.applicationContext as FreedarApplication
+        val check = context.getSharedPreferences("process-check", android.content.Context.MODE_PRIVATE)
+        withRadar { scenario ->
+            if (phase == "seed") {
+                check.edit().putString("session", app.processSession).commit()
+                scenario.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                    it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(41.0, -101.0), 7.0))
+                } }
+                compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                    .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+                awaitText("Selected frame")
+            } else {
+                assertNotNull(check.getString("session", null))
+                assertNotEquals(check.getString("session", null), app.processSession)
+                compose.onNodeWithText("Following latest").assertExists()
+                scenario.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                    assertEquals(41.0, it.cameraPosition.target!!.latitude, .001)
+                    assertEquals(-101.0, it.cameraPosition.target!!.longitude, .001)
+                    assertEquals(7.0, it.cameraPosition.zoom, .001)
+                } }
+            }
+        }
+        if (phase == "verify") {
+            check.edit().clear().commit()
+            context.getSharedPreferences("remembered-view", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun freshLaunchRemembersCameraButOpensLatestAndClearPreservesViewSettingsAndPlaces() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("remembered-view", android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        try { withRadar { first ->
+            first.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -100.0), 6.0))
+            } }
+            compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+            awaitText("Selected frame")
+            first.onActivity {
+                LifecycleTestActivity.savedForTest = it.saveBeforeStop().apply {
+                    // Android can deliver an old task Bundle after process death.
+                    putString("processSession", "previous-process")
+                }
+            }
+            first.close()
+            ActivityScenario.launch(LifecycleTestActivity::class.java).use { second ->
+                compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                compose.revealMapControls()
+                compose.onNodeWithText("Following latest").assertExists()
+                second.onActivity { activity -> requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                    assertEquals(40.0, it.cameraPosition.target!!.latitude, .001)
+                    assertEquals(-100.0, it.cameraPosition.target!!.longitude, .001)
+                    assertEquals(6.0, it.cameraPosition.zoom, .001)
+                } }
+                val app = context.applicationContext as FreedarApplication
+                app.imagery.put("fixture", "image/png", byteArrayOf(1), app.imagery.generation())
+                val places = java.io.File(context.noBackupFilesDir, "place-search/preservation-check")
+                places.parentFile!!.mkdirs(); places.writeText("preserve")
+                val savedView = preferences.all
+                try {
+                    compose.onNodeWithText("Settings").performClick()
+                    compose.onNodeWithText("Fast · 4 fps").performScrollTo().performClick()
+                    compose.onNodeWithText("Clear downloaded data").performScrollTo().performClick()
+                    compose.waitUntil(5000) { compose.onAllNodesWithText("Downloaded imagery cleared").fetchSemanticsNodes().isNotEmpty() }
+                    assertEquals(0L, app.imagery.size())
+                    assertEquals("preserve", places.readText())
+                    assertEquals(savedView, preferences.all)
+                    compose.onNodeWithText("Fast · 4 fps").performScrollTo().assertIsSelected()
+                } finally { places.delete() }
+            }
+        } } finally {
+            LifecycleTestActivity.savedForTest = null
+            preferences.edit().clear().commit()
+            context.getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
     @Test fun themesPersistAndChangeNativeBasemapAndComposeWithoutLosingSelectionOrCamera() {
         val preferences = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
             .getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE)
@@ -436,7 +519,11 @@ class ControlsPlaybackTest {
                 awaitText("Pause")
                 compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
                     .performScrollTo().assertIsDisplayed()
-                    .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+                    .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
+                        // Choose a distinct endpoint in the same UI action. Playback
+                        // can advance while scroll-to completes; the current value is a no-op.
+                        assertTrue("Scrub must move the slider", it(0f) || it(1f))
+                    }
                 awaitText("Selected frame")
                 compose.onNodeWithText("Latest").performScrollTo().assertIsDisplayed().performClick()
                 awaitText("Following latest")
@@ -482,10 +569,12 @@ class ControlsPlaybackTest {
                 override suspend fun history() = frames
             }
             LifecycleTestActivity.elapsed = 0
-            ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
-                compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
-                compose.revealMapControls()
-                test(scenario)
+            withFreshMapRequestBudget {
+                ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
+                    compose.waitUntil(30000) { compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                    compose.revealMapControls()
+                    test(scenario)
+                }
             }
         }
     }

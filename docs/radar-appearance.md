@@ -64,14 +64,12 @@ About includes the build version, GitHub project and RainViewer, OpenStreetMap,
 CARTO, MapLibre and GeoNames credits, including the GeoNames license. This supplements
 the required persistent linked map credits.
 
-## Reserved downloaded-imagery integration
+## Downloaded-imagery integration
 
-Settings has a Downloaded imagery information section, **not a Clear action**.
-Persistent imagery downloads are currently disabled in `configureMapNetwork`.
-When downloads are implemented, replace that information section with real storage
-usage/clearing behavior backed by the imagery-storage owner, and test the resulting
-storage changes through that boundary. Do not clear the app's whole data directory,
-preferences, or `noBackupFilesDir`.
+Settings provides **Clear downloaded data**, backed by the bounded CARTO imagery
+store. See [downloaded-imagery.md](downloaded-imagery.md) for permission, retention,
+capacity and offline limits. RainViewer persistence remains blocked. Clear does not
+target preferences, remembered view, the whole app cache, or `noBackupFilesDir`.
 
 The bundled GeoNames asset and `noBackupFilesDir/place-search/places-v1.sqlite` are
 application resources, separate from imagery storage. See [place-search.md](place-search.md).

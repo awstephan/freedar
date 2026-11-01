@@ -6,12 +6,21 @@ import org.maplibre.android.MapLibre
 
 /** Network budgets and provider backoff survive activity recreation. */
 class FreedarApplication : Application() {
+    lateinit var imagery: DownloadedImagery
+        private set
+    val processSession = java.util.UUID.randomUUID().toString()
     lateinit var httpClient: OkHttpClient
         private set
 
     override fun onCreate() {
         super.onCreate()
         MapLibre.getInstance(this)
-        httpClient = configureMapNetwork(this, BuildConfig.CARTO_API_KEY)
+        imagery = DownloadedImagery(java.io.File(cacheDir, "downloaded-imagery"))
+        httpClient = configureMapNetwork(this, BuildConfig.CARTO_API_KEY, imagery)
+        val scheduler = getSystemService(android.app.job.JobScheduler::class.java)
+        if (scheduler.getPendingJob(IMAGERY_EXPIRY_JOB_ID) == null) scheduler.schedule(android.app.job.JobInfo.Builder(IMAGERY_EXPIRY_JOB_ID,
+            android.content.ComponentName(this, ImageryExpiryJob::class.java))
+            .setPeriodic(6 * 60 * 60 * 1000L).setPersisted(true).build())
     }
+    private companion object { const val IMAGERY_EXPIRY_JOB_ID = 9 }
 }

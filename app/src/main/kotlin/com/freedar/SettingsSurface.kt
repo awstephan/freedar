@@ -6,6 +6,11 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.*
@@ -17,6 +22,10 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsSurface(settings: AppearanceSettings, persistent: Boolean, persist: (Boolean) -> Unit,
     changeTheme: (MapTheme) -> Unit, dismiss: () -> Unit) {
+    val imagery = (LocalContext.current.applicationContext as FreedarApplication).imagery
+    val scope = rememberCoroutineScope()
+    var clearing by remember { mutableStateOf(false) }
+    var downloadMessage by remember { mutableStateOf<String?>(null) }
     BackHandler(onBack = dismiss)
     Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -70,7 +79,21 @@ fun SettingsSurface(settings: AppearanceSettings, persistent: Boolean, persist: 
             SourceLink("Places: GeoNames · CC BY 4.0", "https://www.geonames.org/")
             SourceLink("GeoNames license", "https://creativecommons.org/licenses/by/4.0/")
             Text("Downloaded imagery", style = MaterialTheme.typography.titleMedium)
-            Text("Persistent imagery downloads are not available yet. Bundled offline place-search data is separate.",
+            Text("Recently viewed base map · up to 100 MB, at most 30 days. Offline radar downloads await provider permission. Missing imagery does not mean clear weather.",
+                style = MaterialTheme.typography.bodySmall)
+            TextButton(enabled = !clearing, onClick = {
+                clearing = true
+                scope.launch {
+                    downloadMessage = try {
+                        withContext(Dispatchers.IO) { imagery.clear() }
+                        "Downloaded imagery cleared"
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: java.io.IOException) { "Could not clear downloaded imagery. Try again." }
+                    clearing = false
+                }
+            }) { Text(if (clearing) "Clearing…" else "Clear downloaded data") }
+            downloadMessage?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            Text("Preserves remembered view, preferences and bundled place search. Visible map textures may remain until the map reloads.",
                 style = MaterialTheme.typography.bodySmall)
         }
     }

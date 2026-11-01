@@ -166,13 +166,17 @@ distribution are not configured or authorized by this slice.
   all load within one minute. Failed frames are skipped until refresh/retry;
   loaded frames can continue playing through backoff.
   The client and limiter live at application scope, preserving backoff on rotation.
-- No downloaded-data persistence is offered: OkHttp has no disk cache, responses
-  are marked no-store, and MapLibre's ambient cache maximum is zero. In-memory
+- CARTO resources use a separate 100 MB LRU device store with retention deletion
+  and Settings → Clear downloaded data. See [downloaded imagery](docs/downloaded-imagery.md).
+  OkHttp has no second disk cache; native responses are marked no-store and
+  MapLibre's ambient cache maximum is zero. In-memory
   reuse is bounded to a 24 MiB application-lifetime LRU of radar tile bytes,
   expiring after 15 minutes (individual entries capped at 512 KiB). The renderer
   holds only the visible frame and one candidate, rather than a source per history
   frame. Warm playback reuses downloaded bytes, not a freshly downloaded sequence.
-  Persistent offline retention awaits permission and a later bounded-cache implementation.
+  Persistent offline **radar** retention still awaits permission. Fresh launches
+  restore remembered center/zoom and start latest paused/following; theme and
+  orientation recreation preserve the existing timeline behavior.
 
 ## Tests and checks
 
@@ -223,7 +227,8 @@ See [foundation validation](docs/validation/issue-2.md) and
 [freshness validation](docs/validation/issue-4.md), and
 [positioning validation](docs/validation/issue-6.md), and
 [offline search validation](docs/validation/issue-7.md), and
-[appearance validation](docs/validation/issue-8.md) for actual results, limitations
+[appearance validation](docs/validation/issue-8.md), and
+[remembered view/storage validation](docs/validation/issue-9.md) for actual results, limitations
 and the remaining live-service/device checks.
 
 ## Provider contracts and reference
@@ -248,5 +253,5 @@ and the remaining live-service/device checks.
 community use while the terms emphasize personal/educational use. Public APK
 distribution and persistent caching/preloading need confirmation from
 `support@rainviewer.com`; no inquiry has been sent. CARTO permits limited device
-caching under its terms, but this implementation deliberately uses none. A build
+caching under its terms, implemented in the bounded device imagery store. A build
 or rendering test cannot resolve those permission questions.
