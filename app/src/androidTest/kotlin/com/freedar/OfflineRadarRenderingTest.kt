@@ -77,6 +77,11 @@ class OfflineRadarRenderingTest {
                         compose.waitForIdle()
                         compose.waitUntil(30000) { compose.onAllNodesWithText("Updating radar…").fetchSemanticsNodes().isEmpty() }
                         assertBlue(scenario)
+                        compose.revealMapControls()
+                        compose.onNodeWithText("Settings").performClick()
+                        compose.onNodeWithText("Fast · 4 fps").performScrollTo().performClick()
+                        // Install the real bundled index before process death/Clear, not a sentinel.
+                        PlaceSearch(app).use { assertEquals(3413829L, it.search("Reykjavik").first().id) }
                     }
                     if (phase == "seed") {
                         processCheck.edit().putString("session", app.processSession).putString("label", label).commit()
@@ -95,6 +100,13 @@ class OfflineRadarRenderingTest {
                     compose.onNodeWithText("Saved radar · original frame time, not live data").assertExists()
                     compose.onNodeWithText("Stale radar feed").assertExists()
                     assertBlue(scenario)
+                    compose.revealMapControls()
+                    compose.onNodeWithText("Following latest").assertExists()
+                    scenario.onActivity { activity -> map(activity.window.decorView)!!.getMapAsync {
+                        assertEquals(40.0, it.cameraPosition.target!!.latitude, .001)
+                        assertEquals(-100.0, it.cameraPosition.target!!.longitude, .001)
+                        assertEquals(6.0, it.cameraPosition.zoom, .001)
+                    } }
                     scenario.onActivity { activity -> map(activity.window.decorView)!!.getMapAsync {
                         it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(35.0, 139.0), 9.0))
                     } }
@@ -102,9 +114,12 @@ class OfflineRadarRenderingTest {
                         .fetchSemanticsNodes().isNotEmpty() }
                     compose.revealMapControls()
                     compose.onNodeWithText("Settings").performClick()
+                    compose.onNodeWithText("Fast · 4 fps").performScrollTo().assertIsSelected()
                     compose.onNodeWithText("Clear downloaded data").performScrollTo().performClick()
                     compose.waitUntil(5000) { compose.onAllNodesWithText("Downloaded imagery cleared").fetchSemanticsNodes().isNotEmpty() }
                     assertEquals(0L, app.imagery.size())
+                    compose.onNodeWithText("Fast · 4 fps").performScrollTo().assertIsSelected()
+                    PlaceSearch(app).use { assertEquals(1850147L, it.search("東京").first().id) }
                 }
                 install(RadarProvider { throw IOException("Offline fixture") })
                 ActivityScenario.launch(LifecycleTestActivity::class.java).use {
@@ -117,6 +132,7 @@ class OfflineRadarRenderingTest {
                     app.imagery.clear()
                     processCheck.edit().clear().commit()
                     app.getSharedPreferences("remembered-view", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+                    app.getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE).edit().clear().commit()
                 }
             }
         }

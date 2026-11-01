@@ -1,9 +1,9 @@
 # Freedar
 
-A native Android map with historical precipitation radar and a scrubbable playback
-strip. [Issue #4](https://github.com/awstephan/freedar/issues/4) adds honest freshness
-and lifecycle behavior to playback from [#3](https://github.com/awstephan/freedar/issues/3), under
-[spec #1](https://github.com/awstephan/freedar/issues/1).
+A native Android map with historical precipitation radar, offline city search,
+one-shot location, appearance settings and bounded offline imagery. Integrated
+testing APK evidence and release limitations are in [issue #10 validation](docs/validation/issue-10.md),
+under [spec #1](https://github.com/awstephan/freedar/issues/1).
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
@@ -39,9 +39,13 @@ The checked-in Gradle 8.13 wrapper verifies its distribution checksum.
 
    ```sh
    ./gradlew :app:assembleDebug
-   adb install -r app/build/outputs/apk/debug/app-debug.apk
-   adb shell am start -n com.freedar/.MainActivity
+   adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+   adb -s emulator-5554 shell am start -n com.freedar/.MainActivity
    ```
+
+   Replace `emulator-5554` with the intended device serial from `adb devices` when
+   installing elsewhere. The debug APK is signed and installable for testing;
+   upgrades require the same signing certificate. See the [artifact/signing record](docs/validation/issue-10.md#testing-artifact-and-installation).
 
 Without a key, debug builds remain usable for fixture testing and show an explicit
 base-map configuration message over a neutral background. They do not silently
@@ -199,7 +203,7 @@ or public network access (after dependency download).
 
 # Full checks
 ./gradlew test :app:lintDebug :app:assembleDebug :app:assembleRelease
-./gradlew :app:connectedDebugAndroidTest
+ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 ```
 
 For a Google-free API-26 test device, install the SDK image
@@ -256,5 +260,6 @@ caching, preloading and distribution subject to the published site terms, with n
 additional restrictions. Radar storage uses a two-hour frame-based retention window.
 This is maintainer-confirmed permission, not independently inspected correspondence;
 see [downloaded imagery](docs/downloaded-imagery.md). CARTO retains its separate
-device-cache limits. Public release authorization, source licensing and integrated
-validation remain release decisions under #10.
+device-cache limits. Public release authorization and source licensing remain explicit
+maintainer decisions. Integrated validation does not authorize publication; see
+[release decisions and limits](docs/validation/issue-10.md#release-decisions-and-limits).
