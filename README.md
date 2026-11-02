@@ -30,7 +30,7 @@ testing results, not physical-device performance guarantees.
 
 The debug APK is the installable testing artifact. Release builds are unsigned;
 release signing, public APK publication and source licensing remain maintainer
-decisions. The current Info-only credit layout also has an unresolved CARTO
+decisions. The current collapsed credit layout also has an unresolved CARTO
 attribution requirement, documented below.
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
@@ -42,11 +42,15 @@ permission is requested only when you explicitly choose **Locate**.
 
 | Control | Behavior |
 | --- | --- |
-| **Info**, top-left | Frame/feed age, Retry/Refresh, coverage explanation, radar legend and linked credits. A red icon with a warning badge indicates stale/offline/failed data. |
+| **Attributions (©)**, top-left | One linked provider name per line. |
+| **Info**, bottom-left, immediately right of Settings | Compact radar status with Frame/feed age and Retry/Refresh, legend, and coverage explanations. A red icon with a warning badge indicates stale/offline/failed data. |
 | **Locate**, top-right | Requests permission when needed, obtains one fresh fix and centers at zoom 9. Becomes Cancel while waiting. |
 | **Search**, top-right | Searches the bundled city/town database when you submit using the keyboard's Search action. Selecting a result centers at zoom 9. |
 | **Settings**, bottom-left | Theme, radar opacity, playback speed, Clear downloaded data and About. |
 | **Timeline and Play/Pause**, bottom-right | Scrub to a historical frame or animate available history. Latest returns to newest imagery, paused and following updates. |
+
+Panel icons toggle their panels closed on a second tap; opening another panel replaces the current one.
+Icons are 20 dp with 48 dp touch targets.
 
 Search selection and successful location reset radar to Latest. Ordinary pan/zoom
 preserves the selected time. Cold launches attempt location only if permission is
@@ -119,7 +123,7 @@ distribution are not configured.
 - The app requests the **current hosted Positron or Dark Matter style**, not legacy v1 assets.
   CARTO's style/glyph/sprite/tile URLs can change as they update their maps; the
   network adapter attaches the project key only to `cartocdn.com` and subdomains.
-- The top-left **Info** button opens linked credits for **OpenStreetMap contributors**, **CARTO**,
+- The top-left **Attributions (©)** button opens linked credits for **OpenStreetMap contributors**, **CARTO**,
   **RainViewer**, **MapLibre**, and **GeoNames**. This owner-requested collapsed layout conflicts
   with CARTO's published visible-credit wording; see [the attribution finding](VALIDATION.md#carto).
 

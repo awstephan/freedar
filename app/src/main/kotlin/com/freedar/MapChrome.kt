@@ -9,8 +9,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+
+private enum class MapPanel { ATTRIBUTIONS, INFO, SETTINGS, SEARCH }
 
 /** Persistent corner controls; detailed information only occupies the map when requested. */
 @Composable
@@ -18,7 +22,7 @@ fun MapChrome(
     map: @Composable () -> Unit,
     status: @Composable () -> Unit,
     playback: @Composable () -> Unit,
-    credits: @Composable () -> Unit,
+    attributions: @Composable () -> Unit,
     notice: String,
     warning: Boolean,
     locate: (() -> Unit)? = null,
@@ -28,9 +32,13 @@ fun MapChrome(
     appearance: AppearanceSettings,
     changeTheme: (MapTheme) -> Unit,
 ) {
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
-    var infoOpen by rememberSaveable { mutableStateOf(false) }
+    var panel by rememberSaveable { mutableStateOf<MapPanel?>(null) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    fun close() { keyboard?.hide(); panel = null }
+    fun toggle(next: MapPanel) {
+        keyboard?.hide()
+        panel = if (panel == next) null else next
+    }
     var searchState by rememberSaveable(stateSaver = PlaceSearchState.Saver) { mutableStateOf(PlaceSearchState()) }
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().semantics {
@@ -38,51 +46,69 @@ fun MapChrome(
             traversalIndex = 0f
         }) { map() }
         Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(8.dp)) {
-            MapIconButton(MapIcon.INFO, "Info", onClick = {
-                settingsOpen = false; searchOpen = false; infoOpen = true
-            }, warning = warning,
-                modifier = Modifier.align(Alignment.TopStart), status = notice)
-            Row(Modifier.align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            MapIconButton(MapIcon.ATTRIBUTIONS, "Attributions", onClick = { toggle(MapPanel.ATTRIBUTIONS) },
+                modifier = Modifier.align(Alignment.TopStart).zIndex(1f), expanded = panel == MapPanel.ATTRIBUTIONS)
+            Row(Modifier.align(Alignment.TopEnd).zIndex(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 locate?.let {
                     MapIconButton(if (locating) MapIcon.CLOSE else MapIcon.LOCATE,
                         if (locating) "Cancel" else "Locate", it, enabled = locateEnabled)
                 }
                 selectPlace?.let {
                     MapIconButton(MapIcon.SEARCH, "Search", {
-                        searchState = PlaceSearchState()
-                        settingsOpen = false; infoOpen = false
-                        searchOpen = true
-                    })
+                        if (panel != MapPanel.SEARCH) searchState = PlaceSearchState()
+                        toggle(MapPanel.SEARCH)
+                    }, expanded = panel == MapPanel.SEARCH)
                 }
             }
-            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().zIndex(1f),
                 verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MapIconButton(MapIcon.SETTINGS, "Settings", {
-                    searchOpen = false; infoOpen = false; settingsOpen = true
-                })
+                Row {
+                    MapIconButton(MapIcon.SETTINGS, "Settings", { toggle(MapPanel.SETTINGS) }, expanded = panel == MapPanel.SETTINGS)
+                    MapIconButton(MapIcon.INFO, "Info", { toggle(MapPanel.INFO) }, warning = warning,
+                        status = notice, expanded = panel == MapPanel.INFO)
+                }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.BottomEnd) {
                     Box(Modifier.widthIn(max = 420.dp)) { playback() }
                 }
             }
-            if (settingsOpen || searchOpen || infoOpen) {
-                // Bound the scroll area in both orientations, including large fonts and the keyboard.
-                Column(Modifier.align(Alignment.Center).widthIn(max = 480.dp)
-                    .fillMaxWidth().fillMaxHeight(.85f).verticalScroll(rememberScrollState())) {
-                    when {
-                        settingsOpen -> SettingsSurface(appearance, changeTheme, dismiss = { settingsOpen = false })
-                        searchOpen && selectPlace != null -> PlaceSearchSurface(searchState, selectPlace,
-                            dismiss = { searchOpen = false })
-                        infoOpen -> {
-                            BackHandler { infoOpen = false }
-                            Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Map info", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                        TextButton(onClick = { infoOpen = false }) { Text("Close info") }
+            if (panel != null) {
+                BackHandler { close() }
+                BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // A landscape keyboard can leave too little room between control rows.
+                    // In that case put the scrolling panel between the corner controls instead.
+                    val shortViewport = maxHeight < 240.dp
+                    val panelPadding = if (shortViewport) Modifier.padding(horizontal = 104.dp)
+                        else Modifier.padding(top = 56.dp, bottom = 96.dp)
+                    Box(panelPadding, contentAlignment = Alignment.Center) {
+                        key(panel) {
+                            Column(Modifier.widthIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                                when {
+                                    panel == MapPanel.SETTINGS -> SettingsSurface(appearance, changeTheme, dismiss = ::close)
+                                    panel == MapPanel.SEARCH && selectPlace != null -> PlaceSearchSurface(searchState, selectPlace,
+                                        dismiss = ::close)
+                                    panel == MapPanel.INFO || panel == MapPanel.ATTRIBUTIONS -> {
+                                        Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
+                                            Column(Modifier.width(IntrinsicSize.Max).padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(if (panel == MapPanel.INFO) "Map info" else "Attributions",
+                                                        Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                                    TextButton(onClick = ::close) {
+                                                        Text(if (panel == MapPanel.INFO) "Close info" else "Close attributions")
+                                                    }
+                                                }
+                                                if (panel == MapPanel.ATTRIBUTIONS) attributions() else {
+                                                    Text("Radar status", style = MaterialTheme.typography.titleSmall)
+                                                    status()
+                                                    LegendContent()
+                                                    Text("Coverage & limitations", style = MaterialTheme.typography.titleSmall)
+                                                    Text("Zoom adds no radar detail. Shading marks outside the static footprint; " +
+                                                        "live coverage elsewhere is unknown. Blank radar does not mean clear weather.",
+                                                        style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                        }
                                     }
-                                    status()
-                                    credits()
-                                    LegendContent()
                                 }
                             }
                         }

@@ -22,7 +22,7 @@ class MapControlsRenderingTest {
             for (orientation in listOf(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)) {
                 compose.rotateAndWait(scenario, orientation)
                 Thread.sleep(5500)
-                for (label in listOf("Info", "Locate", "Search", "Settings")) {
+                for (label in listOf("Attributions", "Info", "Locate", "Search", "Settings")) {
                     val bounds = compose.onNodeWithContentDescription(label).assertIsDisplayed().fetchSemanticsNode().boundsInWindow
                     scenario.onActivity {
                         assertEquals(1.8f, it.resources.configuration.fontScale, .01f)
@@ -40,7 +40,7 @@ class MapControlsRenderingTest {
                 compose.onNodeWithContentDescription("Info").performClick()
                 compose.onNodeWithText("Radar unavailable").assertExists()
                 compose.onNodeWithText("Retry").performScrollTo().assertIsDisplayed()
-                compose.onNodeWithText("© OpenStreetMap contributors", substring = true).performScrollTo().assertIsDisplayed()
+                compose.onNodeWithText("© OpenStreetMap contributors", substring = true).assertDoesNotExist()
                 compose.onNodeWithText("Rain · dBZ samples").performScrollTo().assertIsDisplayed()
                 compose.onNodeWithText("Close info").performScrollTo().performClick()
                 compose.onNodeWithContentDescription("Settings").performClick()
@@ -51,6 +51,21 @@ class MapControlsRenderingTest {
                 compose.onNodeWithText("Close info").assertIsDisplayed()
                 compose.onNodeWithText("Done").assertDoesNotExist()
                 compose.onNodeWithText("Close info").performClick()
+                for ((label, closeLabel) in listOf("Attributions" to "Close attributions", "Info" to "Close info",
+                    "Settings" to "Done", "Search" to "Close search")) {
+                    compose.onNodeWithContentDescription(label).performTouchInput { click() }
+                    compose.onNodeWithText(closeLabel).assertExists()
+                    if (label == "Attributions") {
+                        compose.onNodeWithText("© OpenStreetMap contributors").performScrollTo().assertIsDisplayed()
+                        compose.onNodeWithText("Radar status").assertDoesNotExist()
+                    }
+                    if (label == "Search") {
+                        compose.onNodeWithText("City or town").performScrollTo().performClick().performTextInput("London")
+                        compose.waitForIdle()
+                    }
+                    compose.onNodeWithContentDescription(label).performTouchInput { click() }
+                    compose.onNodeWithText(closeLabel).assertDoesNotExist()
+                }
             }
         }
     }

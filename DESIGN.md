@@ -24,10 +24,11 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 - Portrait and landscape; rotation preserves map and playback state.
 - Theme follows the system by default, with Light and Dark overrides.
 - First launch shows the contiguous USA without prompting for location permission. On later cold launches, existing location permission triggers one fresh foreground fix; remembered center/zoom is the fallback. Rotation and foreground return preserve the current camera.
-- Compact controls are always visible. Top-left: Info; top-right: Locate and Search; bottom-left: Settings; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
+- Compact controls are always visible, with 20 dp icons and 48 dp touch targets. Top-left: Attributions (©); top-right: Locate and Search; bottom-left: Settings immediately followed by Info; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
 - Frame time is a small tag above the timeline, positioned at the displayed frame. Show it during playback/scrubbing and when paused on an older image; hide it when paused at the latest image.
-- Info turns red and adds a warning badge for stale data or update failures; its accessible description reports the condition. Tapping opens details, Retry/Refresh, coverage explanation, legend and linked source credits. Historical selection alone does not trigger a stale-feed warning.
-- No persistent status/coverage/credit cards. Attribution lives inside Info, as requested by the owner; this conflicts with CARTO's currently published visible-credit requirement (see VALIDATION.md).
+- Info turns red and adds a warning badge for stale data or update failures; its accessible description reports the condition. Its compact sections are Radar status (including Retry/Refresh), Legend, and Coverage & limitations. Historical selection alone does not trigger a stale-feed warning.
+- Attributions contains one linked provider name per line. No persistent status/coverage/credit cards; collapsed attribution still conflicts with CARTO's currently published visible-credit requirement (see VALIDATION.md).
+- Attributions, Info, Settings, and Search toggle closed when their icon is tapped again; opening another replaces the current panel. Centered, content-sized panels scroll within space reserved between controls. Explicit close buttons and Android Back also dismiss panels; closing Search dismisses its keyboard. These presentation revisions were agreed on 2026-11-02.
 - Dark basemap uses charcoal land (#333333), darker water (#222222), and readable roads/labels. Radar colors and opacity semantics are unchanged.
 
 ## Radar and time

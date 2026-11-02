@@ -19,27 +19,33 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.unit.dp
 
-enum class MapIcon { INFO, LOCATE, SEARCH, SETTINGS, PLAY, PAUSE, LATEST, CLOSE }
+enum class MapIcon { ATTRIBUTIONS, INFO, LOCATE, SEARCH, SETTINGS, PLAY, PAUSE, LATEST, CLOSE }
 
 /** Small visual footprint with a full 48dp accessible touch target. */
 @Composable
 fun MapIconButton(icon: MapIcon, label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
-    enabled: Boolean = true, warning: Boolean = false, status: String? = null) {
+    enabled: Boolean = true, warning: Boolean = false, status: String? = null, expanded: Boolean? = null) {
     val color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     Surface(modifier = modifier, shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = .88f)) {
         IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)
             .semantics {
                 contentDescription = label
-                if (status != null) { stateDescription = status; liveRegion = LiveRegionMode.Polite }
+                if (expanded != null || status != null) stateDescription = listOfNotNull(
+                    expanded?.let { if (it) "Expanded" else "Collapsed" }, status).joinToString(" · ")
+                if (status != null) liveRegion = LiveRegionMode.Polite
             }) {
             Box {
-                Canvas(Modifier.size(24.dp)) {
+                Canvas(Modifier.size(20.dp)) {
                     val ink = color.copy(alpha = if (enabled) 1f else .38f)
                     scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
                         fun line(x: Float, y: Float, xx: Float, yy: Float) =
                             drawLine(ink, Offset(x, y), Offset(xx, yy), 2f)
                         when (icon) {
+                            MapIcon.ATTRIBUTIONS -> {
+                                drawCircle(ink, 9f, Offset(12f, 12f), style = Stroke(2f))
+                                drawArc(ink, 45f, 270f, false, Offset(8f, 7f), Size(8f, 10f), style = Stroke(2f))
+                            }
                             MapIcon.INFO -> {
                                 drawCircle(ink, 9f, Offset(12f, 12f), style = Stroke(2f))
                                 drawCircle(ink, 1.3f, Offset(12f, 7f))

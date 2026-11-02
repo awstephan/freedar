@@ -1,5 +1,7 @@
 package com.freedar
 
+import androidx.compose.foundation.layout.Arrangement
+
 import android.os.Bundle
 import android.os.SystemClock
 import android.net.ConnectivityManager
@@ -207,7 +209,7 @@ open class MainActivity : ComponentActivity() {
                             else timeline { radar.play() }
                         }, select = { frame -> timeline { radar.select(frame) } },
                         latest = { timeline { radar.latest() } }) },
-                    credits = { Credits() },
+                    attributions = { Attributions() },
                 )
             }
         }
@@ -273,27 +275,14 @@ open class MainActivity : ComponentActivity() {
     }
 
     @Composable private fun RadarStatus(state: RadarState, base: String?, tiles: String?, location: String?, retry: () -> Unit) {
-        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 3.dp) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 10.dp, bottom = 10.dp),
+            Row(Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     val frame = state.frame
                     if (frame != null) {
-                        Text("Frame time · ${frameLabel(frame)}", style = MaterialTheme.typography.bodyMedium)
-                        Text("${state.ageSeconds / 60} min old",
+                        Text("Frame time · ${frameLabel(frame)} · ${state.ageSeconds / 60} min old",
                             style = MaterialTheme.typography.bodySmall)
                     } else Text(if (state.loading) "Loading radar…" else "Radar unavailable")
-                    val notices = listOfNotNull(
-                        "Stale feed".takeIf { state.stale },
-                        "Offline".takeIf { state.offline },
-                        "Saved radar".takeIf { state.retainedHistory },
-                        "Refresh failed".takeIf { state.error != null },
-                        "Updating".takeIf { state.loading && frame != null },
-                        "Base map notice".takeIf { base != null },
-                        "Imagery / coverage notice".takeIf { tiles != null },
-                        "Location notice".takeIf { location != null },
-                    )
-                    if (notices.isNotEmpty()) Text(notices.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                     Column {
                         location?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }) }
@@ -301,8 +290,10 @@ open class MainActivity : ComponentActivity() {
                             Text("Newest feed frame · ${state.newestAgeSeconds / 60} min old", style = MaterialTheme.typography.bodySmall)
                         }
                         if (state.stale) Text("Stale radar feed", style = MaterialTheme.typography.bodySmall)
-                        if (state.offline) Text("Offline · retained imagery is not live", style = MaterialTheme.typography.bodySmall)
-                        if (state.retainedHistory) Text("Saved radar · original frame time, not live data", style = MaterialTheme.typography.bodySmall)
+                         if (state.offline || state.retainedHistory) Text(
+                             listOfNotNull("Offline".takeIf { state.offline }, "Saved radar".takeIf { state.retainedHistory })
+                                 .joinToString(" · ") + " · retained imagery is not live",
+                             style = MaterialTheme.typography.bodySmall)
                         if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
                         listOfNotNull(base, state.error, tiles).forEach {
                             Text(it, style = MaterialTheme.typography.bodySmall)
@@ -316,28 +307,22 @@ open class MainActivity : ComponentActivity() {
                     Text(if (state.error != null || base != null || tiles != null) "Retry" else "Refresh")
                 }
             }
-        }
     }
 
-    @Composable private fun Credits() {
-        Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 3.dp) {
-            Column(Modifier.padding(10.dp)) {
-                Text("Zoom adds no radar detail. Shaded: outside static footprint. Elsewhere: live coverage unknown. " +
-                    "Blank radar does not mean clear weather.",
-                    style = MaterialTheme.typography.bodySmall)
+    @Composable private fun Attributions() {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(
+                    "© OpenStreetMap contributors" to "https://www.openstreetmap.org/copyright",
+                    "© CARTO" to "https://carto.com/attribution/",
+                    "RainViewer" to "https://www.rainviewer.com/",
+                    "MapLibre" to "https://maplibre.org/",
+                    "GeoNames" to "https://www.geonames.org/",
+                ).forEach { (name, url) ->
                 Text(buildAnnotatedString {
-                    withLink(LinkAnnotation.Url("https://www.openstreetmap.org/copyright")) { append("© OpenStreetMap contributors") }
-                    append(" · ")
-                    withLink(LinkAnnotation.Url("https://carto.com/attribution/")) { append("© CARTO") }
-                    append("\n")
-                    withLink(LinkAnnotation.Url("https://www.rainviewer.com/")) { append("Radar: RainViewer") }
-                    append(" · ")
-                    withLink(LinkAnnotation.Url("https://maplibre.org/")) { append("MapLibre") }
-                    append(" · ")
-                    withLink(LinkAnnotation.Url("https://www.geonames.org/")) { append("Places: GeoNames") }
+                    withLink(LinkAnnotation.Url(url)) { append(name) }
                 }, style = MaterialTheme.typography.bodySmall)
+                }
             }
-        }
     }
 
     private fun frameLabel(frame: RadarFrame): String {
