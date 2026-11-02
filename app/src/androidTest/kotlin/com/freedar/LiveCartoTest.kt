@@ -72,6 +72,14 @@ class LiveCartoTest {
                         val radarIndex = layers.indexOfFirst { it.id.startsWith("radar-") }
                         assertTrue("Roads must remain above even opaque radar", layers.indexOfFirst { it.id == "road_sec_fill_noramp" } > radarIndex)
                         assertTrue(layers.filterIsInstance<SymbolLayer>().all { layers.indexOf(it) > radarIndex })
+                        if (theme == "dark-matter") {
+                            assertEquals(android.graphics.Color.rgb(51, 51, 51), map.style!!
+                                .getLayerAs<org.maplibre.android.style.layers.BackgroundLayer>("background")!!.backgroundColorAsInt)
+                            assertEquals(android.graphics.Color.rgb(51, 51, 51), map.style!!
+                                .getLayerAs<org.maplibre.android.style.layers.FillLayer>("landcover")!!.fillColorAsInt)
+                            assertEquals(android.graphics.Color.rgb(34, 34, 34), map.style!!
+                                .getLayerAs<org.maplibre.android.style.layers.FillLayer>("water")!!.fillColorAsInt)
+                        }
                     }
                     var names = emptyList<String>()
                     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(40)
@@ -129,7 +137,6 @@ class LiveCartoTest {
                 if (!styled) Thread.sleep(250)
             }
             assertTrue("CARTO style loaded", styled)
-            // The all-state overview is below CARTO's country-label minzoom (2).
             // A regional view must show real place labels, not merely coastline geometry.
             instrumentation.runOnMainSync {
                 map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.73, -73.94), 7.0))

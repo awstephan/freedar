@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.core.app.ActivityScenario
@@ -34,9 +35,13 @@ fun ComposeTestRule.rotateAndWait(scenario: ActivityScenario<LifecycleTestActivi
 }
 
 fun ComposeTestRule.revealMapControls() {
-    // The center of a full-screen map node may be covered by controls or a credit
-    // link at large text sizes. Invoke the explicit accessibility action instead.
-    onNodeWithContentDescription("Weather map").performSemanticsAction(SemanticsActions.OnClick) { it() }
+    waitForIdle() // Compact controls are always visible.
+}
+
+fun ComposeTestRule.awaitRadar() {
+    waitUntil(30000) {
+        onAllNodesWithContentDescription("Radar history; scrubbing pauses playback").fetchSemanticsNodes().isNotEmpty()
+    }
 }
 
 /** Each local provider fixture gets its own budget; recreation within it keeps that budget. */

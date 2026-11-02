@@ -56,8 +56,11 @@ class OfflineRadarRenderingTest {
                 }.build()
                 HttpRequestUtil.setOkHttpClient(client)
             }
-            fun awaitFrame() = compose.waitUntil(30000) {
-                compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty()
+            fun awaitFrame() {
+                compose.onNodeWithContentDescription("Info").performClick()
+                compose.waitUntil(30000) {
+                    compose.onAllNodesWithText("Frame time", substring = true).fetchSemanticsNodes().isNotEmpty()
+                }
             }
             fun frameLabel() = compose.onNodeWithText("Frame time", substring = true).fetchSemanticsNode()
                 .config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString { it.text }
@@ -72,13 +75,12 @@ class OfflineRadarRenderingTest {
                             it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -100.0), 6.0))
                         } }
                         // Wait for Latest presentation at the new viewport before closing.
-                        compose.revealMapControls()
-                        compose.onNodeWithText("Latest").performClick()
+                        compose.onNode(hasText("Retry") or hasText("Refresh")).performScrollTo().performClick()
                         compose.waitForIdle()
                         compose.waitUntil(30000) { compose.onAllNodesWithText("Updating radar…").fetchSemanticsNodes().isEmpty() }
                         assertBlue(scenario)
-                        compose.revealMapControls()
-                        compose.onNodeWithText("Settings").performClick()
+                        compose.onNodeWithText("Close info").performScrollTo().performClick()
+                        compose.onNodeWithContentDescription("Settings").performClick()
                         compose.onNodeWithText("Fast · 4 fps").performScrollTo().performClick()
                         // Install the real bundled index before process death/Clear, not a sentinel.
                         PlaceSearch(app).use { assertEquals(3413829L, it.search("Reykjavik").first().id) }
@@ -101,7 +103,10 @@ class OfflineRadarRenderingTest {
                     compose.onNodeWithText("Stale radar feed").assertExists()
                     assertBlue(scenario)
                     compose.revealMapControls()
-                    compose.onNodeWithText("Following latest").assertExists()
+                    compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                        .assert(SemanticsMatcher("Following latest") {
+                            it.config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Following latest")
+                        })
                     scenario.onActivity { activity -> map(activity.window.decorView)!!.getMapAsync {
                         assertEquals(40.0, it.cameraPosition.target!!.latitude, .001)
                         assertEquals(-100.0, it.cameraPosition.target!!.longitude, .001)
@@ -112,8 +117,8 @@ class OfflineRadarRenderingTest {
                     } }
                     compose.waitUntil(15000) { compose.onAllNodesWithText("Some radar tiles are unavailable", substring = true)
                         .fetchSemanticsNodes().isNotEmpty() }
-                    compose.revealMapControls()
-                    compose.onNodeWithText("Settings").performClick()
+                    compose.onNodeWithText("Close info").performScrollTo().performClick()
+                    compose.onNodeWithContentDescription("Settings").performClick()
                     compose.onNodeWithText("Fast · 4 fps").performScrollTo().assertIsSelected()
                     compose.onNodeWithText("Clear downloaded data").performScrollTo().performClick()
                     compose.waitUntil(5000) { compose.onAllNodesWithText("Downloaded imagery cleared").fetchSemanticsNodes().isNotEmpty() }
@@ -123,6 +128,7 @@ class OfflineRadarRenderingTest {
                 }
                 install(RadarProvider { throw IOException("Offline fixture") })
                 ActivityScenario.launch(LifecycleTestActivity::class.java).use {
+                    compose.onNodeWithContentDescription("Info").performClick()
                     compose.waitUntil(30000) { compose.onAllNodesWithText("Radar unavailable").fetchSemanticsNodes().isNotEmpty() }
                     compose.onAllNodesWithText("Frame time", substring = true).assertCountEquals(0)
                 }

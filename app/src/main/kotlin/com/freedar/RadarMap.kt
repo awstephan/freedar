@@ -60,6 +60,7 @@ class RadarMap(context: Context) : RadarDisplay {
     }
 
     init {
+        view.getMapAsync { it.addOnCameraMoveStartedListener(navigationListener) }
         view.addOnTileActionListener { operation, _, _, _, _, _, source ->
             if (source == visibleId && operation == TileOperation.Error) {
                 mutableStatus.value = "Some radar tiles are unavailable. Blank areas do not mean clear weather."
@@ -90,7 +91,7 @@ class RadarMap(context: Context) : RadarDisplay {
             isTiltGesturesEnabled = false
             isCompassEnabled = false
             isLogoEnabled = false
-            // Persistent, individually linked credits are supplied by the Compose overlay.
+            // Individually linked credits are supplied by the Compose Info panel.
             isAttributionEnabled = false
         }
         nativeMap.removeOnCameraMoveStartedListener(navigationListener)
@@ -103,11 +104,23 @@ class RadarMap(context: Context) : RadarDisplay {
         view.addOnDidFailLoadingMapListener(failure)
         try {
             val builder = if (url == null) Style.Builder().fromJson(
-                if (dark) EMPTY_STYLE.replace("#e9eeec", "#202428") else EMPTY_STYLE
+                if (dark) EMPTY_STYLE.replace("#e9eeec", "#333333") else EMPTY_STYLE
             ) else Style.Builder().fromUri(url)
             nativeMap.setStyle(builder) { loaded.complete(it) }
             style = withTimeoutOrNull(30_000) { loaded.await() } ?: throw IOException("Base map timed out")
             if (dark) {
+                style.layers.filterIsInstance<org.maplibre.android.style.layers.BackgroundLayer>().forEach {
+                    it.setProperties(org.maplibre.android.style.layers.PropertyFactory.backgroundColor("#333333"))
+                }
+                style.layers.filterIsInstance<org.maplibre.android.style.layers.FillLayer>().forEach {
+                    val color = when (it.id) {
+                        "landcover", "landuse", "landuse_residential" -> "#333333"
+                        "park_national_park", "park_nature_reserve" -> "#303830"
+                        "water" -> "#222222"
+                        else -> null
+                    }
+                    if (color != null) it.setProperties(org.maplibre.android.style.layers.PropertyFactory.fillColor(color))
+                }
                 // Dark Matter's low-contrast road fills disappear against strong red echoes.
                 // Keep its dark casings and brighten transport fills above the radar.
                 style.layers.filterIsInstance<org.maplibre.android.style.layers.LineLayer>().filter {
@@ -129,10 +142,9 @@ class RadarMap(context: Context) : RadarDisplay {
     }
 
     fun overview(map: MapLibreMap = nativeMap) {
-        // Include the Aleutians across the antimeridian (172 E == -188 W), Hawaii,
-        // northern Alaska and the eastern contiguous states. No navigation bounds.
+        // First-open overview of the contiguous USA; exploration remains worldwide.
         map.moveCamera(CameraUpdateFactory.newLatLngBounds(
-            LatLngBounds.from(72.0, -66.0, 18.0, -188.0), 36,
+            LatLngBounds.from(49.5, -66.0, 24.0, -125.0), 36,
         ))
     }
 

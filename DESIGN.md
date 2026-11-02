@@ -1,8 +1,12 @@
 # Freedar: agreed product design
 
-Status: product decisions agreed during the design interview; technical validation remains incomplete. No application has been implemented.
+Status: implemented testing build; compact map presentation and startup navigation revised with the owner on 2026-11-01. The owner explicitly chose to retain the resulting changes after implementation began prematurely during the design interview. See the [compact-map record](docs/validation/compact-map.md) for that decision, device evidence and limitations.
 
 Published specification: https://github.com/awstephan/freedar/issues/1
+
+The compact-map and startup-navigation revisions below supersede the original
+presentation decisions in that issue. This local document records the revised
+behavior; the published issue has not been updated in this session.
 
 ## Purpose and audience
 
@@ -19,12 +23,12 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 - Permit zoom beyond radar native resolution by enlarging radar tiles. Never imply this adds precipitation detail.
 - Portrait and landscape; rotation preserves map and playback state.
 - Theme follows the system by default, with Light and Dark overrides.
-- Remember map center, zoom, and settings between launches.
-- First launch shows an overview encompassing all 50 states without prompting for location permission.
-- Controls appear initially and on a map tap, then hide after five seconds of inactivity.
-- Frame time, important stale/failure status, and required attribution remain visible when controls hide.
-- Keep controls visible when the user disables auto-hide or Android touch exploration is enabled.
-- Compact playback strip: Play/Pause, scrubbable timeline, frame time, and Latest action. Small Locate, Search, Legend, and Settings controls; no permanent layer selector is needed for the single-layer release.
+- First launch shows the contiguous USA without prompting for location permission. On later cold launches, existing location permission triggers one fresh foreground fix; remembered center/zoom is the fallback. Rotation and foreground return preserve the current camera.
+- Compact controls are always visible. Top-left: Info; top-right: Locate and Search; bottom-left: Settings; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
+- Frame time is a small tag above the timeline, positioned at the displayed frame. Show it during playback/scrubbing and when paused on an older image; hide it when paused at the latest image.
+- Info turns red and adds a warning badge for stale data or update failures; its accessible description reports the condition. Tapping opens details, Retry/Refresh, coverage explanation, legend and linked source credits. Historical selection alone does not trigger a stale-feed warning.
+- No persistent status/coverage/credit cards. Attribution lives inside Info, as requested by the owner; this conflicts with CARTO's currently published visible-credit requirement (see VALIDATION.md).
+- Dark basemap uses charcoal land (#333333), darker water (#222222), and readable roads/labels. Radar colors and opacity semantics are unchanged.
 
 ## Radar and time
 
@@ -39,14 +43,14 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 - Timestamp must always match the image displayed. RainViewer supplies composite frame-generation time, not exact local observation time; label accordingly.
 - Use the phone's time zone and 12/24-hour preference, with a time-zone label.
 - Flag the feed as stale when its newest available frame is older than 20 minutes, provisionally subject to provider validation. Selecting an old frame is not feed staleness.
-- Refresh failures retain previously loaded imagery with its timestamp, a persistent compact failure/age notice, and Retry.
-- With no radar loaded, keep the base map usable and explicitly show radar unavailable. Do not equate blank imagery with clear weather.
+- Refresh failures retain previously loaded imagery and flag the Info icon. Frame time, newest-feed age, failure details and Retry are available in Info.
+- With no radar loaded, keep the base map usable and indicate failure through Info, whose panel explicitly says radar unavailable. Do not equate blank imagery with clear weather.
 - Show precipitation types only where supported; RainViewer currently documents rain/snow, not a separate mixed category. Legend must match actual provider colors and intensity meaning.
-- Legend opens as a compact overlay and remains until dismissed.
+- Legend is part of the scrollable Info panel, which remains until dismissed.
 
 ## Navigation and lifecycle
 
-- Locate requests foreground location permission on demand, centers once, and zooms to a useful local-area view showing surrounding weather.
+- Locate requests foreground location permission on demand, centers once, and zooms to a useful local-area view showing surrounding weather. Cold launches use the same one-shot flow only when permission is already granted, never prompting automatically.
 - Search selection uses the same local-area framing.
 - Both actions reset to newest radar, paused and following updates.
 - Ordinary panning/zooming preserves timeline state and never triggers recentering.
@@ -69,10 +73,10 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 
 - Radar opacity slider: immediate preview with map partly visible, remembered value, reset to default.
 - Theme: System (default), Light, Dark.
-- Keep controls visible: off by default, overridden for touch exploration.
+- Controls are always visible; there is no auto-hide preference.
 - Playback speed: Slow, Normal (default), Fast; remembered.
 - Clear downloaded data: removes cached maps/radar but preserves settings, map position, and bundled search data.
-- About: app version, GitHub link, and source credits including GeoNames. Required map attribution stays on-map.
+- About: app version, GitHub link, and source credits including GeoNames. The Info panel also contains linked attribution.
 
 ## Technical direction
 

@@ -3,7 +3,6 @@ package com.freedar
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
@@ -18,9 +17,9 @@ import androidx.compose.ui.unit.dp
 import com.freedar.radar.PlaybackSpeed
 import kotlin.math.roundToInt
 
-/** Uses the chrome's bounded scroll region, leaving the map and anchored credits visible. */
+/** Uses the chrome's bounded scroll region, leaving part of the map visible. */
 @Composable
-fun SettingsSurface(settings: AppearanceSettings, persistent: Boolean, persist: (Boolean) -> Unit,
+fun SettingsSurface(settings: AppearanceSettings,
     changeTheme: (MapTheme) -> Unit, dismiss: () -> Unit) {
     val imagery = (LocalContext.current.applicationContext as FreedarApplication).imagery
     val scope = rememberCoroutineScope()
@@ -32,12 +31,6 @@ fun SettingsSurface(settings: AppearanceSettings, persistent: Boolean, persist: 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Settings", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = dismiss) { Text("Done") }
-            }
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .toggleable(persistent, role = Role.Switch, onValueChange = persist),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("Keep controls visible", Modifier.weight(1f))
-                Switch(checked = persistent, onCheckedChange = null)
             }
             Text("Radar opacity · ${(settings.opacity * 100).roundToInt()}%")
             Slider(value = settings.opacity, onValueChange = settings::opacity,

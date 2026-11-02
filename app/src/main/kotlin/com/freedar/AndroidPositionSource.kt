@@ -16,8 +16,9 @@ class AndroidPositionSource(
     private val requestPermission: ((Boolean) -> Unit) -> Unit,
 ) : ForegroundPositionSource {
     private fun granted(permission: String) = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    override fun hasPermission() = granted(Manifest.permission.ACCESS_COARSE_LOCATION) || granted(Manifest.permission.ACCESS_FINE_LOCATION)
     override fun permission(result: (Boolean) -> Unit) {
-        if (granted(Manifest.permission.ACCESS_COARSE_LOCATION) || granted(Manifest.permission.ACCESS_FINE_LOCATION)) result(true)
+        if (hasPermission()) result(true)
         else requestPermission(result)
     }
 

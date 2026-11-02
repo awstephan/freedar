@@ -35,7 +35,7 @@ mm/h conversion, or named light/moderate/heavy threshold. The provider table als
 includes fainter echoes below 15 dBZ (including translucent gray/brown rain colors),
 and saturates rain to green and snow to blue from 75 through 95 dBZ. The UI labels
 its selected samples and explains that weaker echoes may be faint. Missing imagery
-does not establish clear weather; existing persistent coverage guidance remains.
+does not establish clear weather; the Info panel contains the coverage guidance.
 
 ## Defaults and effects
 
@@ -49,20 +49,26 @@ does not establish clear weather; existing persistent coverage guidance remains.
   timeline and overlay restoration path. Pending native requests and coverage are
   disposed before the replacement style starts; unavailable styles retain honest
   loading/failure diagnostics and Retry. The fallback map also follows the theme.
+  Dark Matter's background and land fills use charcoal `#333333`, water `#222222`,
+  and park fills `#303830`, matching the brighter QuickWeather-inspired direction.
 - Radar and coverage are inserted below CARTO transport layers and labels. Dark
   transport fills are brightened to `#c3c9d1`, retaining dark casings: unmodified
   Dark Matter roads had weak contrast against the 50-dBZ red fixture during review.
 - **Playback: Normal, 2 fps.** Slow is 1 fps and Fast is 4 fps. A speed change affects
   the next scheduled interval without restarting history. The newest frame always
   holds for one second. Loading can reduce achieved frame rate; these are targets.
-- **Keep controls visible: off.** Its existing preference and touch-exploration
-  override are retained. Legend and Settings hold controls until dismissal, including
-  rotation, and use the bounded scrolling controls region. Frame/status, coverage
-  explanation and linked attribution remain anchored outside that region.
+- **Controls always visible.** Small corner icons replace the large cards and auto-hide
+  setting. Info contains status, Retry/Refresh, coverage guidance, legend and credits;
+  Info/Settings/Search use bounded scrolling panels that survive rotation. A red Info
+  icon with a warning badge and accessible status indicates stale/failed data.
+- **Time tag:** above the thin slider at the displayed frame, visible during playback,
+  scrubbing, and paused history. It hides when paused at the latest image. Latest has
+  a reserved slot beside the slider so showing the action does not resize an active scrub.
 
 About includes the build version, GitHub project and RainViewer, OpenStreetMap,
-CARTO, MapLibre and GeoNames credits, including the GeoNames license. This supplements
-the required persistent linked map credits.
+CARTO, MapLibre and GeoNames credits, including the GeoNames license. Info also contains
+linked credits. The owner requested collapsed attribution; the conflict with CARTO's
+currently published visible-credit requirement is recorded in [VALIDATION.md](../VALIDATION.md#carto).
 
 ## Downloaded-imagery integration
 

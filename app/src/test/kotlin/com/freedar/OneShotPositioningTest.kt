@@ -5,6 +5,8 @@ import org.junit.Test
 
 class OneShotPositioningTest {
     private class Source : ForegroundPositionSource {
+        var granted = false
+        override fun hasPermission() = granted
         var permissions = mutableListOf<(Boolean) -> Unit>()
         var fixes = mutableListOf<(PositionResult) -> Unit>()
         var stops = 0
@@ -13,6 +15,24 @@ class OneShotPositioningTest {
             fixes += result
             return { stops++ }
         }
+    }
+
+    @Test fun startupNeverPromptsAndOnlyCentersWithAnExistingGrant() {
+        val source = Source()
+        val navigations = mutableListOf<LocalPosition>()
+        val positioning = OneShotPositioning(source, navigations::add)
+        positioning.locateIfPermitted()
+        assertTrue(source.permissions.isEmpty())
+        assertTrue(source.fixes.isEmpty())
+        source.granted = true
+        positioning.locateIfPermitted()
+        assertTrue(source.permissions.isEmpty())
+        source.fixes.single()(PositionResult.Fix(LocalPosition(30.0, -97.0)))
+        assertEquals(listOf(LocalPosition(30.0, -97.0)), navigations)
+        positioning.locateIfPermitted()
+        positioning.navigationStarted()
+        source.fixes.last()(PositionResult.Fix(LocalPosition(31.0, -98.0)))
+        assertEquals(1, navigations.size)
     }
 
     @Test fun cancellationNavigationAndBackgroundRejectLatePermissionAndFixes() {

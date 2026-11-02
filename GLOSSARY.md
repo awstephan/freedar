@@ -4,6 +4,9 @@ Language for a map-focused precipitation viewer.
 
 ## Language
 
+**Basemap**:
+The geographic background showing land, water, roads and place names beneath weather imagery.
+
 **Radar layer**:
 Weather-radar imagery showing estimated precipitation location and intensity over the map. Radar measurements do not guarantee precipitation is reaching the ground.
 _Avoid_: Satellite layer

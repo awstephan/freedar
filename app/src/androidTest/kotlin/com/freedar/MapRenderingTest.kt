@@ -63,10 +63,10 @@ class MapRenderingTest {
                              map.loadStyle(null)
                              map.showCoverage("http://127.0.0.1:${server.port}/coverage/256/{z}/{x}/{y}/0/0_0.png")
                             map.overview()
-                            for (point in listOf(LatLng(71.4, -156.5), LatLng(19.0, -155.5),
-                                LatLng(52.0, -187.0), LatLng(45.0, -67.0))) {
+                            for (point in listOf(LatLng(49.0, -124.0), LatLng(25.0, -81.0),
+                                LatLng(32.5, -117.0), LatLng(45.0, -67.0))) {
                                 val pixel = map.nativeMap.projection.toScreenLocation(point)
-                                assertTrue("US extent visible: $point -> $pixel",
+                                assertTrue("Contiguous US extent visible: $point -> $pixel",
                                     pixel.x in 0f..map.view.width.toFloat() && pixel.y in 0f..map.view.height.toFloat())
                             }
                             map.nativeMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -100.0), 10.0))

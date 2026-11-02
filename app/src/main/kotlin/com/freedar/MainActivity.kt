@@ -18,11 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Slider
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,12 +29,8 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.liveRegion
-import kotlin.math.roundToInt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -79,7 +70,7 @@ open class MainActivity : ComponentActivity() {
     }
     private lateinit var positioning: OneShotPositioning
     /** Shared entry point for map gestures and search-selection navigation. */
-    fun navigationStarted() { positioning.navigationStarted() }
+    fun navigationStarted() { startupLocationPending = false; positioning.navigationStarted() }
     protected open fun elapsedMillis(): Long = SystemClock.elapsedRealtime()
     protected open fun radarProvider(): RadarProvider = (application as FreedarApplication).let {
         RetainedRadarProvider(RainViewer(it.httpClient), it.radarArchive)
@@ -101,7 +92,8 @@ open class MainActivity : ComponentActivity() {
     private var recreationState: RadarState? = null
     private var stateBeforeStop: RadarState? = null
     private var returning = true
-    private val controls = ControlsPresentation()
+    private var startupLocationPending = false
+    private var locationLatestPending = false
     private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = updateConnectivity()
@@ -118,14 +110,20 @@ open class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         appearance = AppearanceSettings(this)
+        val bars = if (darkTheme) androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            else androidx.activity.SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         rememberedView = RememberedView(this)
         map = RadarMap(this)
         map.view.onCreate(savedInstanceState)
         val session = (application as FreedarApplication).processSession
         restored = savedInstanceState?.getString("processSession") == session
+        val startup = getSharedPreferences("startup", MODE_PRIVATE)
+        startupLocationPending = !restored && startup.getBoolean("opened", false)
+        startup.edit().putBoolean("opened", true).apply()
         val timelineState = savedInstanceState?.takeIf { restored }
+        locationLatestPending = timelineState?.getBoolean("locationLatestPending") ?: false
         map.view.getMapAsync { native ->
             if (!restored) {
                 val camera = rememberedView.read()
@@ -147,7 +145,8 @@ open class MainActivity : ComponentActivity() {
             restoredAwaySince = timelineState?.takeIf { it.containsKey("radarAway") }?.getLong("radarAway"))
         positioning = OneShotPositioning(positionSource()) { position ->
             map.centerLocal(position)
-            timeline { radar.latest() }
+            if (styleReady && !returning) timeline { radar.latest() }
+            else locationLatestPending = true
         }
         map.onNavigationStarted = ::navigationStarted
         setContent {
@@ -163,7 +162,22 @@ open class MainActivity : ComponentActivity() {
                 val tileStatus by map.status.collectAsState()
                 val coverageStatus by map.coverageStatus.collectAsState()
                 val positionState by positioning.state.collectAsState()
-                MapChrome(controls,
+                val notices = listOfNotNull(
+                    "Stale radar feed".takeIf { state.stale },
+                    "Refresh failed".takeIf { state.refreshError != null },
+                    "Radar imagery unavailable".takeIf { state.imageError != null || tileStatus != null },
+                    "Offline".takeIf { state.offline },
+                    "Saved radar".takeIf { state.retainedHistory },
+                    baseMessage, coverageStatus.message, positionState.message,
+                    "Loading radar".takeIf { state.loading },
+                )
+                MapChrome(
+                    notice = notices.joinToString(". ").ifEmpty { "Radar feed up to date" },
+                    warning = state.stale || state.error != null || state.offline || state.retainedHistory ||
+                        tileStatus != null || coverageStatus == CoverageStatus.UNAVAILABLE ||
+                        (!styleReady && baseMessage != "Loading base map…") ||
+                        (baseMessage != null && styleReady) ||
+                        (!positionState.waiting && positionState.message != null),
                     appearance = appearance,
                     changeTheme = { theme ->
                         if (appearance.theme != theme) {
@@ -175,7 +189,7 @@ open class MainActivity : ComponentActivity() {
                     },
                     locate = { if (positionState.waiting) positioning.cancel() else positioning.locate() },
                     locating = positionState.waiting,
-                    locateEnabled = styleReady,
+                    locateEnabled = true,
                     selectPlace = { place ->
                         navigationStarted()
                         map.centerLocal(place.position)
@@ -184,11 +198,15 @@ open class MainActivity : ComponentActivity() {
                     map = { AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize()) },
                     status = {
                         RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }, positionState.message) {
-                            controls.reveal()
                             refresh(retryDisplayed = true)
                         }
                     },
-                    playback = { PlaybackStrip(state) },
+                    playback = { PlaybackStrip(state, ::frameLabel,
+                        togglePlayback = {
+                            if (state.mode == TimelineMode.PLAYING) { radar.pause(); timelineJob?.cancel() }
+                            else timeline { radar.play() }
+                        }, select = { frame -> timeline { radar.select(frame) } },
+                        latest = { timeline { radar.latest() } }) },
                     credits = { Credits() },
                 )
             }
@@ -218,63 +236,8 @@ open class MainActivity : ComponentActivity() {
     }
 
     private fun timeline(action: suspend () -> Unit) {
-        controls.reveal()
         timelineJob?.cancel()
         timelineJob = lifecycleScope.launch { action() }
-    }
-
-    @Composable private fun PlaybackStrip(state: RadarState) {
-        val frames = state.frames
-        if (frames.isEmpty()) return
-        val span = (frames.size - 1).coerceAtLeast(1).toFloat()
-        val selected = state.selection ?: state.frame ?: frames.last()
-        val selectedIndex = frames.indexOfFirst { it.tileTemplate == selected.tileTemplate }.coerceAtLeast(0)
-        val gapColor = MaterialTheme.colorScheme.error
-        Surface(shape = RoundedCornerShape(16.dp), tonalElevation = 3.dp,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-            Column(Modifier.padding(horizontal = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        controls.reveal()
-                        if (state.mode == TimelineMode.PLAYING) { radar.pause(); timelineJob?.cancel() }
-                        else timeline { radar.play() }
-                    }) { Text(if (state.mode == TimelineMode.PLAYING) "Pause" else "Play") }
-                    Text(if (state.mode == TimelineMode.FOLLOWING) "Following latest" else
-                        if (state.mode == TimelineMode.PLAYING) "${appearance.speed.fps} fps" else "Selected frame",
-                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { timeline { radar.latest() } }) { Text("Latest") }
-                }
-                Slider(
-                    value = selectedIndex.toFloat(),
-                    onValueChange = { offset ->
-                        val frame = frames[offset.roundToInt().coerceIn(frames.indices)]
-                        timeline { radar.select(frame) }
-                    },
-                    valueRange = 0f..(frames.size - 1).coerceAtLeast(1).toFloat(),
-                    steps = (frames.size - 2).coerceAtLeast(0),
-                    enabled = frames.size > 1,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Radar history; scrubbing pauses playback"
-                        stateDescription = "Frame ${selectedIndex + 1} of ${frames.size}, ${frameLabel(selected)}"
-                    },
-                )
-                if (state.unavailable.isNotEmpty() || state.gaps.isNotEmpty()) {
-                    Canvas(Modifier.fillMaxWidth().height(4.dp)) {
-                        state.gaps.forEach { (from, to) ->
-                            drawLine(gapColor,
-                                Offset(frames.indexOf(from) / span * size.width, size.height / 2),
-                                Offset(frames.indexOf(to) / span * size.width, size.height / 2), size.height)
-                        }
-                        state.unavailable.forEach {
-                            drawCircle(gapColor, 3.dp.toPx(),
-                                Offset(frames.indexOf(it) / span * size.width, size.height / 2))
-                        }
-                    }
-                    Text("Timeline gaps · ${state.unavailable.size} unavailable frames · ${state.gaps.size} missing intervals",
-                        style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
     }
 
     private fun refresh(retryDisplayed: Boolean = false) {
@@ -297,7 +260,10 @@ open class MainActivity : ComponentActivity() {
             if (returning) {
                 val resume = radar.foreground()
                 returning = false
-                if (resume) timeline { radar.play(resume = true) }
+                if (locationLatestPending) {
+                    locationLatestPending = false
+                    timeline { radar.latest() }
+                } else if (resume) timeline { radar.play(resume = true) }
             } else radar.refresh(retryDisplayed)
             radar.state.value.frames.lastOrNull()?.let {
                 val host = it.tileTemplate.split('/').take(3).joinToString("/")
@@ -328,9 +294,7 @@ open class MainActivity : ComponentActivity() {
                         "Location notice".takeIf { location != null },
                     )
                     if (notices.isNotEmpty()) Text(notices.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-                    // The frame and active notice summary stay anchored even when verbose
-                    // provider diagnostics need scrolling at large accessibility text sizes.
-                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    Column {
                         location?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }) }
                         state.newestFrameTime?.let {
@@ -343,6 +307,9 @@ open class MainActivity : ComponentActivity() {
                         listOfNotNull(base, state.error, tiles).forEach {
                             Text(it, style = MaterialTheme.typography.bodySmall)
                         }
+                        if (state.unavailable.isNotEmpty() || state.gaps.isNotEmpty())
+                            Text("Timeline gaps · ${state.unavailable.size} unavailable frames · ${state.gaps.size} missing intervals",
+                                style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 TextButton(onClick = retry, enabled = !state.loading) {
@@ -383,9 +350,13 @@ open class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart(); map.view.onStart()
-        controls.hold(ControlsHold.INTERACTION, false)
-        controls.hold(ControlsHold.KEYBOARD, false)
-        controls.reveal()
+        if (startupLocationPending) {
+            startupLocationPending = false
+            // Wait for the initial camera and native gesture cancellation listener, not network/style loading.
+            map.view.getMapAsync {
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) positioning.locateIfPermitted()
+            }
+        }
         map.coverageForeground(true)
         returning = true
         connectivity.registerDefaultNetworkCallback(networkCallback)
@@ -410,6 +381,7 @@ open class MainActivity : ComponentActivity() {
     override fun onLowMemory() { super.onLowMemory(); map.view.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("processSession", (application as FreedarApplication).processSession)
+        outState.putBoolean("locationLatestPending", locationLatestPending)
         map.view.onSaveInstanceState(outState)
         val state = recreationState ?: if (isChangingConfigurations) stateBeforeStop ?: radar.state.value
             else radar.state.value

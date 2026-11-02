@@ -1,46 +1,26 @@
 package com.freedar
 
-import android.content.Context
-import android.os.SystemClock
-import android.view.accessibility.AccessibilityManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 
-/** UI adapter: input updates visibility synchronously, before the next timeout check. */
-class ControlsPresentation {
-    private val policy = MapControls(SystemClock::elapsedRealtime)
-    var visible by mutableStateOf(true)
-        private set
-    fun update() { visible = policy.visible }
-    fun reveal() { policy.reveal(); update() }
-    fun hold(reason: ControlsHold, active: Boolean) { policy.hold(reason, active); update() }
-}
-
+/** Persistent corner controls; detailed information only occupies the map when requested. */
 @Composable
 fun MapChrome(
-    controls: ControlsPresentation,
     map: @Composable () -> Unit,
     status: @Composable () -> Unit,
     playback: @Composable () -> Unit,
     credits: @Composable () -> Unit,
+    notice: String,
+    warning: Boolean,
     locate: (() -> Unit)? = null,
     locating: Boolean = false,
     locateEnabled: Boolean = true,
@@ -48,121 +28,66 @@ fun MapChrome(
     appearance: AppearanceSettings,
     changeTheme: (MapTheme) -> Unit,
 ) {
-    val context = LocalContext.current
-    val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val preferences = remember { context.getSharedPreferences("map-controls", Context.MODE_PRIVATE) }
-    var persistent by remember { mutableStateOf(preferences.getBoolean("persistent", false)) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
-    var legendOpen by rememberSaveable { mutableStateOf(false) }
+    var infoOpen by rememberSaveable { mutableStateOf(false) }
     var searchState by rememberSaveable(stateSaver = PlaceSearchState.Saver) { mutableStateOf(PlaceSearchState()) }
-    val accessibility = remember { context.getSystemService(AccessibilityManager::class.java) }
-    DisposableEffect(accessibility) {
-        controls.hold(ControlsHold.TOUCH_EXPLORATION, accessibility.isTouchExplorationEnabled)
-        val listener = AccessibilityManager.TouchExplorationStateChangeListener {
-            controls.hold(ControlsHold.TOUCH_EXPLORATION, it)
-        }
-        accessibility.addTouchExplorationStateChangeListener(listener)
-        onDispose { accessibility.removeTouchExplorationStateChangeListener(listener) }
-    }
-    val overlayOpen = settingsOpen || searchOpen || legendOpen
-    SideEffect {
-        controls.hold(ControlsHold.LOCATING, locating)
-        controls.hold(ControlsHold.PERSISTENT, persistent)
-        controls.hold(ControlsHold.OVERLAY, overlayOpen)
-        if (overlayOpen) controls.hold(ControlsHold.KEYBOARD, false)
-    }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(controls, lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) { controls.update(); delay(50) }
-        }
-    }
-    Box(Modifier.fillMaxSize().onPreviewKeyEvent {
-        controls.hold(ControlsHold.KEYBOARD, it.type == KeyEventType.KeyDown)
-        false
-    }.pointerInput(controls) {
-        // Observe, never consume: MapLibre and Compose controls retain their own gestures.
-        awaitPointerEventScope {
-            try {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    controls.hold(ControlsHold.INTERACTION, event.changes.any { it.pressed })
-                }
-            } finally { controls.hold(ControlsHold.INTERACTION, false) }
-        }
-    }) {
+    Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().semantics {
             contentDescription = "Weather map"
-            onClick("Show map controls") { controls.reveal(); true }
             traversalIndex = 0f
         }) { map() }
         Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(8.dp)) {
-            val transient: @Composable () -> Unit = {
-                if (controls.visible) {
-                    if (settingsOpen) {
-                        SettingsSurface(appearance, persistent, {
-                            persistent = it
-                            preferences.edit().putBoolean("persistent", it).apply()
-                        }, changeTheme, dismiss = { settingsOpen = false })
-                    } else if (legendOpen) {
-                        LegendSurface { legendOpen = false }
-                    } else if (searchOpen && selectPlace != null) {
-                        PlaceSearchSurface(searchState, selectPlace, dismiss = { searchOpen = false })
-                    } else {
-                        MapActions(settings = { settingsOpen = true }, locate = locate,
-                            legend = { legendOpen = true },
-                            search = selectPlace?.let { { searchState = PlaceSearchState(); searchOpen = true } },
-                            locating = locating, locateEnabled = locateEnabled)
-                        playback()
-                    }
+            MapIconButton(MapIcon.INFO, "Info", onClick = {
+                settingsOpen = false; searchOpen = false; infoOpen = true
+            }, warning = warning,
+                modifier = Modifier.align(Alignment.TopStart), status = notice)
+            Row(Modifier.align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                locate?.let {
+                    MapIconButton(if (locating) MapIcon.CLOSE else MapIcon.LOCATE,
+                        if (locating) "Cancel" else "Locate", it, enabled = locateEnabled)
+                }
+                selectPlace?.let {
+                    MapIconButton(MapIcon.SEARCH, "Search", {
+                        searchState = PlaceSearchState()
+                        settingsOpen = false; infoOpen = false
+                        searchOpen = true
+                    })
                 }
             }
-            if (landscape) {
-                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(Modifier.weight(1f)
-                        .semantics { isTraversalGroup = true; traversalIndex = 1f },
-                        verticalArrangement = Arrangement.spacedBy(8.dp)) { status() }
-                    Column(Modifier.weight(1f).fillMaxHeight()
-                        .semantics { isTraversalGroup = true; traversalIndex = 2f },
-                        verticalArrangement = Arrangement.Bottom) {
-                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) { transient() }
-                        credits()
-                    }
-                }
-            } else {
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                    Column(Modifier.weight(1f, fill = false)
-                        .semantics { isTraversalGroup = true; traversalIndex = 1f }) { status() }
-                    Column(Modifier.weight(1f, fill = false)
-                        .semantics { isTraversalGroup = true; traversalIndex = 2f }) {
-                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) { transient() }
-                        credits()
-                    }
+            Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MapIconButton(MapIcon.SETTINGS, "Settings", {
+                    searchOpen = false; infoOpen = false; settingsOpen = true
+                })
+                Box(Modifier.weight(1f), contentAlignment = Alignment.BottomEnd) {
+                    Box(Modifier.widthIn(max = 420.dp)) { playback() }
                 }
             }
-        }
-    }
-}
-
-/** Stable action positions; features supply their action when available. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun MapActions(
-    settings: () -> Unit,
-    locate: (() -> Unit)? = null,
-    search: (() -> Unit)? = null,
-    legend: (() -> Unit)? = null,
-    locating: Boolean = false,
-    locateEnabled: Boolean = true,
-) {
-    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
-            FlowRow {
-                locate?.let { TextButton(onClick = it, enabled = locateEnabled) { Text(if (locating) "Cancel" else "Locate") } }
-                search?.let { TextButton(onClick = it) { Text("Search") } }
-                legend?.let { TextButton(onClick = it) { Text("Legend") } }
-                TextButton(onClick = settings) { Text("Settings") }
+            if (settingsOpen || searchOpen || infoOpen) {
+                // Bound the scroll area in both orientations, including large fonts and the keyboard.
+                Column(Modifier.align(Alignment.Center).widthIn(max = 480.dp)
+                    .fillMaxWidth().fillMaxHeight(.85f).verticalScroll(rememberScrollState())) {
+                    when {
+                        settingsOpen -> SettingsSurface(appearance, changeTheme, dismiss = { settingsOpen = false })
+                        searchOpen && selectPlace != null -> PlaceSearchSurface(searchState, selectPlace,
+                            dismiss = { searchOpen = false })
+                        infoOpen -> {
+                            BackHandler { infoOpen = false }
+                            Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Map info", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                        TextButton(onClick = { infoOpen = false }) { Text("Close info") }
+                                    }
+                                    status()
+                                    credits()
+                                    LegendContent()
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

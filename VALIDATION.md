@@ -33,6 +33,7 @@ Playback must reuse downloaded imagery, prioritize latest data, bound concurrenc
 - [Basemap FAQ](https://docs.carto.com/faqs/carto-basemaps): vector endpoints may work keylessly, but terms require the customer's own key. Do not treat working anonymous URLs as the permission model.
 - Device caching permitted up to 30 days; no server-side cache/proxy or bulk extraction under the reviewed terms. Cache must enforce deletion, not merely stale HTTP metadata.
 - Required visible linked credit: OpenStreetMap contributors and CARTO.
+- **2026-11-01 compact-layout decision:** the owner requested an always-visible Info icon with the linked credits inside its panel. Implemented as requested. The current [CARTO attribution page](https://carto.com/attribution/) explicitly says “Not hidden, faded or behind a click”; this layout is not established as compliant. [OSMF guidelines](https://osmfoundation.org/wiki/Licence/Attribution_Guidelines) allow collapsing after initial display or interaction, not merely treating an unopened icon as displayed credit. QuickWeather's precedent does not establish provider permission for this design.
 - QuickWeather's CARTO v1 tiles are legacy and no longer updated. Use current styles/schema rather than copying its old style unchanged.
 
 ### GeoNames

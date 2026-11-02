@@ -12,6 +12,7 @@ sealed interface PositionResult {
 
 /** Main-thread boundary. A source may finish synchronously; cancellation is best effort. */
 interface ForegroundPositionSource {
+    fun hasPermission(): Boolean = false
     fun permission(result: (Boolean) -> Unit)
     fun locate(result: (PositionResult) -> Unit): () -> Unit
 }
@@ -29,10 +30,19 @@ class OneShotPositioning(
     private var stop: (() -> Unit)? = null
 
     fun locate() {
+        begin(source::permission)
+    }
+
+    /** Cold-launch convenience: never opens a permission prompt. */
+    fun locateIfPermitted() {
+        if (source.hasPermission()) begin { it(true) }
+    }
+
+    private fun begin(permission: ((Boolean) -> Unit) -> Unit) {
         if (state.value.waiting) return
         val request = ++generation
         mutableState.value = PositioningState(true, "Finding your location…")
-        source.permission { allowed ->
+        permission { allowed ->
             if (request == generation && state.value.waiting) {
                 if (allowed) {
                     val cancel = source.locate { result ->

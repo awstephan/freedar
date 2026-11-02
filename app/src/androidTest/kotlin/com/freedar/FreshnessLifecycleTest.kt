@@ -13,8 +13,8 @@ import org.junit.Test
 import org.junit.Rule
 import org.junit.runner.RunWith
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsProperties
 import android.graphics.Bitmap
 import android.graphics.Color
 import java.io.ByteArrayOutputStream
@@ -64,7 +64,7 @@ class FreshnessLifecycleTest {
                         it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -100.0), 6.0))
                     }
                 }
-                compose.onNodeWithText("Play").performClick()
+                compose.onNodeWithContentDescription("Play").performClick()
                 awaitText("Pause")
                 scenario.moveToState(Lifecycle.State.CREATED)
                 LifecycleTestActivity.elapsed = 299999
@@ -76,7 +76,7 @@ class FreshnessLifecycleTest {
                 LifecycleTestActivity.elapsed += 300000
                 scenario.moveToState(Lifecycle.State.RESUMED)
                 awaitText("Following latest")
-                compose.onNodeWithText("Play").assertExists()
+                compose.onNodeWithContentDescription("Play").assertExists()
                 scenario.onActivity { activity ->
                     requireNotNull(findMap(activity.window.decorView)).getMapAsync {
                         assertEquals(40.0, it.cameraPosition.target!!.latitude, 0.001)
@@ -84,7 +84,7 @@ class FreshnessLifecycleTest {
                         assertEquals(6.0, it.cameraPosition.zoom, 0.001)
                     }
                 }
-                compose.onNodeWithText("Play").performClick()
+                compose.onNodeWithContentDescription("Play").performClick()
                 awaitText("Pause")
                 scenario.onActivity { saved = it.saveBeforeStop() }
             }
@@ -92,14 +92,21 @@ class FreshnessLifecycleTest {
             LifecycleTestActivity.savedForTest = saved
             ActivityScenario.launch(LifecycleTestActivity::class.java).use {
                 awaitText("Following latest")
-                compose.onNodeWithText("Play").assertExists()
+                compose.onNodeWithContentDescription("Play").assertExists()
             }
         }
     }
 
     private fun awaitText(text: String) {
         compose.waitUntil(30000) {
-            try { compose.onNodeWithText(text).assertExists(); true } catch (_: AssertionError) { false }
+            try {
+                when (text) {
+                    "Following latest" -> compose.onNodeWithContentDescription("Radar history; scrubbing pauses playback")
+                        .fetchSemanticsNode().config[SemanticsProperties.StateDescription].contains(text)
+                    "Pause" -> { compose.onNodeWithContentDescription(text).assertExists(); true }
+                    else -> { compose.onNodeWithText(text).assertExists(); true }
+                }
+            } catch (_: AssertionError) { false }
         }
     }
 
@@ -108,6 +115,7 @@ class FreshnessLifecycleTest {
         LifecycleTestActivity.provider = RadarProvider { requests.incrementAndGet(); error("fixture outage") }
         ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
             await { requests.get() == 1 }
+            compose.onNodeWithContentDescription("Info").performClick()
             awaitText("Radar unavailable")
             compose.onNodeWithText("Retry").assertExists()
             scenario.moveToState(Lifecycle.State.CREATED)

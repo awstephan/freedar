@@ -1,6 +1,5 @@
 package com.freedar
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -14,14 +13,9 @@ import androidx.compose.ui.unit.dp
 
 /** Exact RGBA samples from RainViewer's Universal Blue table; see docs/radar-appearance.md. */
 @Composable
-fun LegendSurface(dismiss: () -> Unit) {
-    BackHandler(onBack = dismiss)
-    Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row {
-                Text("Universal Blue", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = dismiss) { Text("Close legend") }
-            }
+fun LegendContent() {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Universal Blue", style = MaterialTheme.typography.titleMedium)
             Text("Reflectivity (dBZ): weaker → stronger radar echoes. Not a rainfall or snowfall rate.",
                 style = MaterialTheme.typography.bodySmall)
             Samples("Rain", listOf(0xFF88DDEE, 0xFF0077AA, 0xFFFFEE00, 0xFFFF4400, 0xFFFFAAFF, 0xFFFFFFFF, 0xFF00FF00))
@@ -32,7 +26,6 @@ fun LegendSurface(dismiss: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall)
             SourceLink("RainViewer color table", "https://www.rainviewer.com/api/color-schemes.html")
         }
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

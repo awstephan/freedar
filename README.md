@@ -5,6 +5,10 @@ one-shot location, appearance settings and bounded offline imagery. Integrated
 testing APK evidence and release limitations are in [issue #10 validation](docs/validation/issue-10.md),
 under [spec #1](https://github.com/awstephan/freedar/issues/1).
 
+The owner has chosen to retain the newer compact-map layout and startup-location
+changes. See the [revised design](DESIGN.md) and
+[compact-map validation and decision record](docs/validation/compact-map.md).
+
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
 target SDK are 35. There is no Play Services dependency. Foreground location
@@ -72,16 +76,18 @@ distribution are not configured or authorized by this slice.
 - The app requests the **current hosted Positron or Dark Matter style**, not legacy v1 assets.
   CARTO's style/glyph/sprite/tile URLs can change as they update their maps; the
   network adapter attaches the project key only to `cartocdn.com` and subdomains.
-- Visible on-map links credit **OpenStreetMap contributors**, **CARTO**,
-  **RainViewer**, **MapLibre**, and **GeoNames**. They remain outside system-bar insets.
+- The top-left **Info** button opens linked credits for **OpenStreetMap contributors**, **CARTO**,
+  **RainViewer**, **MapLibre**, and **GeoNames**. This owner-requested collapsed layout conflicts
+  with CARTO's published visible-credit wording; see [the attribution finding](VALIDATION.md#carto).
 
 ## Behavior and boundaries
 
-- **Legend** explains RainViewer Universal Blue rain/snow reflectivity with validated
+- **Info** includes the legend, which explains RainViewer Universal Blue rain/snow reflectivity with validated
   dBZ color samples. **Settings** offers immediate radar-opacity preview (65% default
-  and reset), System/Light/Dark for map and controls, Keep controls visible, and
+  and reset), System/Light/Dark for map and controls, and
   Slow 1 / Normal 2 / Fast 4 fps playback. Choices persist. About includes version,
-  project and source links; required map attribution remains anchored on-map.
+  project and source links. Controls stay visible, with compact corner icons and a thin bottom timeline.
+  Dark land is charcoal (#333333) and water #222222, preserving radar colors and readable roads.
   See [appearance semantics and storage boundary](docs/radar-appearance.md).
 - **Locate** uses Android's platform GPS/network providers for a one-shot fix,
   waiting at most 30 seconds after permission. No cached last-known position is used;
@@ -94,6 +100,8 @@ distribution are not configured or authorized by this slice.
   Denial or failure leaves camera/timeline unchanged and explains the outcome.
   `MainActivity.navigationStarted()` is the shared entry point search
   selection must call before moving the camera. Requests do not survive recreation.
+  Cold launches also attempt one fix if location permission is already granted; no automatic
+  permission prompt occurs. A missing permission/fix leaves the remembered view usable.
 - **Search** finds cities and towns worldwide using a bundled GeoNames cities500
   database, entirely offline. Submit a place name using the keyboard's Search action;
   results identify region and country. Selection cancels pending Locate, centers at
@@ -115,14 +123,16 @@ distribution are not configured or authorized by this slice.
   the newest available image for one second. Pause retains the displayed frame.
   Scrubbing pauses and retains selection, even across manifest updates; selecting
   the newest point is still a fixed selection. **Latest** returns to paused,
-  following mode. The timeline is positioned by frame time, with markers/text for
+  following mode. The timeline uses ordered frame positions, with markers for
   unavailable frames and intervals exceeding the provider's ten-minute cadence.
   During playback, newly announced newest imagery preempts history loading and
   is prepared invisibly first. The displayed historical frame and its timestamp
   remain unchanged while that preparation runs.
 - **Frame time means composite generation time**, not exact observation time at
   each location. The display uses the phone's clock format/time zone and includes
-  a date. A feed is marked stale after its newest-known frame exceeds **20 minutes**,
+  a date. A small tag follows the displayed frame above the slider during playback/scrubbing
+  and when paused on history; it hides when paused at the latest frame. Full time/age details
+  remain available in Info. A feed is marked stale after its newest-known frame exceeds **20 minutes**,
   independently of the retained displayed image's age if replacement tiles fail.
 - `RadarMap` owns the native renderer. It retains the previous frame while a
   candidate loads beneath the opaque base-map background, commits only after
@@ -136,8 +146,8 @@ distribution are not configured or authorized by this slice.
   Native tile errors remain visible; blank pixels are never called clear weather.
 - Native radar source maxzoom is **7**; camera maxzoom is **18**. Zooming closer
   magnifies the same radar pixels. Pan/pinch remain available during loading and
-  failures; rotation and tilt are disabled. The initial overview includes Hawaii,
-  northern Alaska and the Aleutians across the antimeridian, with worldwide panning.
+   failures; rotation and tilt are disabled. The initial overview frames the contiguous USA,
+   with worldwide panning (including Alaska and Hawaii).
 - Opening/foreground return, explicit Refresh/Retry and a five-minute foreground
   timer refresh the manifest. Following mode updates imagery; a historical
   selection stays selected. Backgrounding suspends playback and cancels outstanding
@@ -151,7 +161,9 @@ distribution are not configured or authorized by this slice.
 - Offline, loading, manifest refresh failure, imagery failure, and stale-feed notices
   are independent. A successful historical presentation cannot dismiss a failed
   manifest refresh. Retry reloads a selected viewport without switching its time.
-  Displayed-frame age and newest-feed age stay visible independently of controls.
+   A red Info icon with a warning badge indicates stale/offline/failed data; its panel contains
+   displayed-frame age, newest-feed age, diagnostics and Retry/Refresh. It also contains the
+   coverage explanation and radar legend.
 - RainViewer's infrequently updated coverage mask is a **static footprint**, not
   live completeness. Black mask pixels shade known outside-footprint areas; inside
   the footprint live availability remains unknown, and blank radar never means clear
@@ -181,7 +193,8 @@ distribution are not configured or authorized by this slice.
   Radar pixels and frame descriptors expire two hours after original frame time;
   saved-history fallback preserves actual time and failed-refresh/offline/stale notices.
   Fresh launches
-  restore remembered center/zoom and start latest paused/following; theme and
+   restore remembered center/zoom as a fallback, attempt current location when already permitted,
+   and start latest paused/following; theme and
   orientation recreation preserve the existing timeline behavior.
 
 ## Tests and checks
