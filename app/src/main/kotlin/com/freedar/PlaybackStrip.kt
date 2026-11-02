@@ -43,6 +43,12 @@ fun PlaybackStrip(state: RadarState, frameLabel: (RadarFrame) -> String,
     }
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(Modifier.weight(1f)) {
+            if (state.cooldownSeconds > 0) {
+                Surface(shape = MaterialTheme.shapes.small, color = track, contentColor = ink) {
+                    Text("Retrying in ${state.cooldownSeconds}s", Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            }
             if (showTime) {
                 // Keep the label centered over the displayed frame, clamped at the track edges.
                 Layout(content = {

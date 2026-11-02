@@ -11,7 +11,8 @@ import org.maplibre.android.module.http.HttpRequestUtil
 import org.maplibre.android.offline.OfflineManager
 
 /** Direct device requests, bounded concurrency, provider-gated device storage. */
-fun configureMapNetwork(context: Context, cartoKey: String, imagery: DownloadedImagery, radar: RadarArchive): OkHttpClient {
+fun configureMapNetwork(context: Context, cartoKey: String, imagery: DownloadedImagery, radar: RadarArchive,
+    radarTiles: RadarTileRequests): OkHttpClient {
     val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -19,7 +20,7 @@ fun configureMapNetwork(context: Context, cartoKey: String, imagery: DownloadedI
         .retryOnConnectionFailure(false)
         .addInterceptor(CartoRequests(cartoKey))
         .addInterceptor(ImageryRequests(imagery, radar = radar))
-        .addInterceptor(RadarTileRequests(isRadarTile = { it.encodedPath.endsWith(".png") && !it.isCarto() }))
+        .addInterceptor(radarTiles)
         .build()
     client.dispatcher.maxRequests = 8
     client.dispatcher.maxRequestsPerHost = 4

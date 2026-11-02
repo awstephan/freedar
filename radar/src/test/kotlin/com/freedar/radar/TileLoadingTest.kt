@@ -8,18 +8,68 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TileLoadingTest {
-    @Test fun `cold history cannot exceed ninety tile requests in a rolling minute`() {
+    @Test fun `missing malformed and negative retry after default to one minute`() {
+        for (header in listOf(null, "invalid", "-1")) MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(429).apply { if (header != null) setHeader("Retry-After", header) })
+            val policy = RadarTileRequests(nowMillis = { 0 })
+            val client = OkHttpClient.Builder().addInterceptor(policy).build()
+            client.newCall(Request.Builder().url(server.url("/cold.png")).build()).execute().close()
+            assertEquals(60_000L, policy.cooldownRemainingMillis)
+        }
+    }
+    @Test fun `cached tiles bypass pacing and cancelled queued work never reaches server`() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("warm"))
+            var now = 0L
+            var waits = 0
+            lateinit var pending: okhttp3.Call
+            val client = OkHttpClient.Builder().addInterceptor(RadarTileRequests(nowMillis = { now }, pause = {
+                waits++
+                pending.cancel()
+                now += it
+            })).build()
+            fun request(path: String) = Request.Builder().url(server.url(path)).build()
+            client.newCall(request("/warm.png")).execute().close()
+            client.newCall(request("/warm.png")).execute().use { assertEquals(200, it.code) }
+            assertEquals(0, waits)
+            pending = client.newCall(request("/cancelled.png"))
+            try { pending.execute().close(); fail("Cancelled pacing must stop") }
+            catch (_: java.io.IOException) { }
+            assertEquals(1, server.requestCount)
+            assertEquals(1, waits)
+        }
+    }
+
+    @Test fun `provider HTTP date retry after creates shared cooldown without new network calls`() {
+        MockWebServer().use { server ->
+            val wall = java.time.Instant.parse("2026-11-02T12:00:00Z")
+            val retry = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME.format(wall.plusSeconds(120).atZone(java.time.ZoneOffset.UTC))
+            server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", retry))
+            var now = 0L
+            val policy = RadarTileRequests(nowMillis = { now }, wallClockMillis = { wall.toEpochMilli() })
+            val client = OkHttpClient.Builder().addInterceptor(policy).build()
+            fun status() = client.newCall(Request.Builder().url(server.url("/cold.png")).build()).execute().use { it.code }
+            assertEquals(429, status())
+            assertEquals(120_000L, policy.cooldownRemainingMillis)
+            now = 60_000
+            assertEquals(429, status())
+            assertEquals(60_000L, policy.cooldownRemainingMillis)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
+    @Test fun `cold history is paced below provider budget rather than rejected`() {
         MockWebServer().use { server ->
             repeat(91) { server.enqueue(MockResponse().setBody("tile")) }
             var now = 0L
-            val client = OkHttpClient.Builder().addInterceptor(RadarTileRequests(nowMillis = { now })).build()
+            val starts = mutableListOf<Long>()
+            val client = OkHttpClient.Builder().addInterceptor(RadarTileRequests(nowMillis = { now }, pause = { now += it }))
+                .addInterceptor { chain -> starts += now; chain.proceed(chain.request()) }.build()
             fun status(index: Int) = client.newCall(Request.Builder().url(server.url("/$index.png")).build())
                 .execute().use { it.code }
-            repeat(90) { assertEquals(200, status(it)) }
-            assertEquals(429, status(90))
-            assertEquals(90, server.requestCount)
-            now = 60_000
-            assertEquals(200, status(90))
+            repeat(91) { assertEquals(200, status(it)) }
+            assertTrue(starts.zipWithNext().all { (a, b) -> b - a >= 750 })
+            assertEquals(80, starts.count { it < 60_000 })
             assertEquals(91, server.requestCount)
         }
     }
@@ -30,7 +80,7 @@ class TileLoadingTest {
             server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "120"))
             server.enqueue(MockResponse().setBody("recovered"))
             var now = 0L
-            val client = OkHttpClient.Builder().addInterceptor(RadarTileRequests(nowMillis = { now })).build()
+            val client = OkHttpClient.Builder().addInterceptor(RadarTileRequests(nowMillis = { now }, pause = { now += it })).build()
             fun status(path: String) = client.newCall(Request.Builder().url(server.url(path)).build())
                 .execute().use { it.code }
             assertEquals(200, status("/warm.png"))
@@ -39,7 +89,7 @@ class TileLoadingTest {
             assertEquals(429, status("/cold.png"))
             assertEquals(200, status("/warm.png"))
             assertEquals(2, server.requestCount)
-            now = 120_000
+            now = 120_750
             assertEquals(200, status("/cold.png"))
             assertEquals(3, server.requestCount)
         }

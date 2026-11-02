@@ -1,6 +1,7 @@
 package com.freedar
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -26,8 +27,7 @@ enum class MapIcon { ATTRIBUTIONS, INFO, LOCATE, SEARCH, SETTINGS, PLAY, PAUSE, 
 fun MapIconButton(icon: MapIcon, label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, warning: Boolean = false, status: String? = null, expanded: Boolean? = null) {
     val color = if (warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-    Surface(modifier = modifier, shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = .88f)) {
+    Box(modifier = modifier) {
         IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)
             .semantics {
                 contentDescription = label
@@ -35,8 +35,9 @@ fun MapIconButton(icon: MapIcon, label: String, onClick: () -> Unit, modifier: M
                     expanded?.let { if (it) "Expanded" else "Collapsed" }, status).joinToString(" · ")
                 if (status != null) liveRegion = LiveRegionMode.Polite
             }) {
-            Box {
-                Canvas(Modifier.size(20.dp)) {
+            Box(Modifier.size(28.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = .88f),
+                RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.size(24.dp)) {
                     val ink = color.copy(alpha = if (enabled) 1f else .38f)
                     scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
                         fun line(x: Float, y: Float, xx: Float, yy: Float) =

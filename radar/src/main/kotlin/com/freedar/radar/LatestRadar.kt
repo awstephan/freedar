@@ -51,6 +51,7 @@ data class RadarState(
     val loading: Boolean = false,
     val refreshError: String? = null,
     val imageError: String? = null,
+    val cooldownSeconds: Long = 0,
     val offline: Boolean = false,
     val retainedHistory: Boolean = false,
     val ageSeconds: Long = 0,
@@ -88,6 +89,7 @@ class LatestRadar(
     private var fetching = false
     private var awaySince: Long? = restoredAwaySince
     private var resumeMode = restoredMode
+    private var retryOnForeground = false
     val backgroundTime: Long? get() = awaySince
     val backgroundMode: TimelineMode get() = resumeMode
 
@@ -96,6 +98,7 @@ class LatestRadar(
         if (awaySince != null) return
         awaySince = monotonicMillis()
         resumeMode = state.value.mode
+        retryOnForeground = presentation != null
         pause()
         presentation?.cancel()
     }
@@ -110,7 +113,8 @@ class LatestRadar(
             mutableState.value = state.value.copy(mode = mode)
         }
         updateAge()
-        refresh()
+        refresh(retryDisplayed = retryOnForeground)
+        retryOnForeground = false
         return state.value.mode == TimelineMode.PLAYING
     }
 
@@ -126,20 +130,33 @@ class LatestRadar(
             displayLock.withLock {
                 ensureActive()
                 if (request != revision) return@withLock false
-                mutableState.value = state.value.copy(loading = true,
+                mutableState.value = state.value.copy(loading = true, cooldownSeconds = 0,
                     selection = if (prepareOnly || state.value.mode == TimelineMode.PLAYING) state.value.selection else frame)
-                try {
-                    if (prepareOnly) display.prepare(frame) else display.showWhenReady(frame) {
-                        if (notBefore != null) delay((notBefore - monotonicMillis()).coerceAtLeast(0))
+                while (true) {
+                    try {
+                        if (prepareOnly) display.prepare(frame) else display.showWhenReady(frame) {
+                            if (notBefore != null) delay((notBefore - monotonicMillis()).coerceAtLeast(0))
+                        }
+                        break
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (cooldown: RadarCoolingDown) {
+                        val until = monotonicMillis() + cooldown.retryAfterMillis.coerceAtLeast(1000)
+                        while (monotonicMillis() < until) {
+                            val remaining = until - monotonicMillis()
+                            mutableState.value = state.value.copy(cooldownSeconds = (remaining + 999) / 1000,
+                                imageError = null)
+                            delay(minOf(1000, remaining))
+                        }
+                        mutableState.value = state.value.copy(cooldownSeconds = 0)
+                        ensureActive()
+                    } catch (_: Exception) {
+                        if (request == revision) mutableState.value = state.value.copy(
+                            unavailable = state.value.unavailable + frame,
+                            imageError = "Radar frame unavailable. Missing imagery does not mean clear weather.",
+                        )
+                        return@withLock false
                     }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    if (request == revision) mutableState.value = state.value.copy(
-                        unavailable = state.value.unavailable + frame,
-                        imageError = "Radar frame unavailable. Missing imagery does not mean clear weather.",
-                    )
-                    return@withLock false
                 }
                 ensureActive()
                 if (request == revision) {
@@ -161,6 +178,7 @@ class LatestRadar(
         } finally {
             if (request == revision) {
                 presentation = null
+                mutableState.value = state.value.copy(cooldownSeconds = 0)
                 updateLoading()
             }
         }
@@ -217,6 +235,13 @@ class LatestRadar(
         showLatest()
     }
 
+    /** A paused native source can need new tiles after a pan, without a slider command. */
+    suspend fun retryViewport() {
+        if (presentation != null || fetching) return
+        val target = state.value.selection ?: state.value.frame ?: return
+        present(target)
+    }
+
     private suspend fun showLatest() {
         val frames = state.value.frames
         if (state.value.retainedHistory) {
@@ -241,7 +266,8 @@ class LatestRadar(
             val frames = returned.filter { it.time >= frame.time.minusSeconds(7200) }
             val newestChanged = frame.time != state.value.newestFrameTime
             val retrySelection = state.value.selection?.takeIf {
-                state.value.mode == TimelineMode.SELECTED && (retryDisplayed || it in state.value.unavailable)
+                state.value.mode == TimelineMode.SELECTED &&
+                    (retryDisplayed || it in state.value.unavailable || it != state.value.frame)
             }
             mutableState.value = state.value.copy(frames = frames, newestFrameTime = frame.time,
                 retainedHistory = retained,

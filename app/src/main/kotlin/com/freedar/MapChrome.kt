@@ -101,6 +101,9 @@ fun MapChrome(
                                                     Text("Radar status", style = MaterialTheme.typography.titleSmall)
                                                     status()
                                                     LegendContent()
+                                                    Text("Map points", style = MaterialTheme.typography.titleSmall)
+                                                    Text("Blue: your latest location fix (updates with Locate). Purple: selected search result.",
+                                                        style = MaterialTheme.typography.bodySmall)
                                                     Text("Coverage & limitations", style = MaterialTheme.typography.titleSmall)
                                                     Text("Zoom adds no radar detail. Shading marks outside the static footprint; " +
                                                         "live coverage elsewhere is unknown. Blank radar does not mean clear weather.",

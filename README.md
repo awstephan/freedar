@@ -50,12 +50,17 @@ permission is requested only when you explicitly choose **Locate**.
 | **Timeline and Play/Pause**, bottom-right | Scrub to a historical frame or animate available history. Latest returns to newest imagery, paused and following updates. |
 
 Panel icons toggle their panels closed on a second tap; opening another panel replaces the current one.
-Icons are 20 dp with 48 dp touch targets.
+Icons are 24 dp with 28 dp rounded backgrounds and invisible 48 dp touch targets.
 
 Search selection and successful location reset radar to Latest. Ordinary pan/zoom
 preserves the selected time. Cold launches attempt location only if permission is
 already granted, with the remembered view as fallback. There is no ongoing tracking
 or background radar polling.
+
+A blue point marks your latest successful location fix; a purple point marks the
+selected search result. Both have white outlines and stay on the map while you
+pan, zoom, rotate, or switch themes. Locate updates the blue point; selecting a
+new search result replaces the purple point. Points last for the current session.
 
 The app focuses on historical precipitation radar: forecasts, weather dashboards,
 alerts, notifications, satellite imagery and provider switching are not implemented.
@@ -221,13 +226,16 @@ distribution are not configured.
   coverage HTTP requests out of radar's native presentation-ready gate. Viewport
   changes discard obsolete footprint sources; no history prefetch or disk cache.
 - Concurrent refreshes are coalesced. HTTP calls have timeouts, native tile calls
-  use at most four requests per host, and the local radar budget is 90 requests
-  per rolling minute. A 429 blocks new radar requests for at least one minute
-  (longer for numeric `Retry-After`). Multiple devices behind one IP can still
+  use at most four requests per host. New radar/coverage tile downloads are spaced
+  at least 750 ms apart (80 per minute); cached tiles bypass pacing and cooldown.
+  A provider 429 blocks new downloads according to numeric or HTTP-date `Retry-After`
+  (one minute if absent/invalid). Multiple devices behind one IP can still
   exhaust RainViewer's shared 100-request/minute allowance. A cold sequence of
   13 frames × 8 tiles needs 104 requests even before metadata/retries, so it cannot
-  all load within one minute. Failed frames are skipped until refresh/retry;
-  loaded frames can continue playing through backoff.
+  all load within one minute. Throttled frames retain their timeline slots: the last
+  image stays visible with a retry countdown, then the pending frame retries automatically.
+  Selecting a cached frame cancels the pending retry and can display immediately.
+  Actual missing/failed frames are still skipped until refresh/retry.
   The client and limiter live at application scope, preserving backoff on rotation.
 - CARTO resources and radar share a 100 MB LRU device store with retention deletion
   and Settings → Clear downloaded data. See [downloaded imagery](docs/downloaded-imagery.md).

@@ -3,6 +3,7 @@ package com.freedar
 import android.content.Context
 import com.freedar.radar.RadarDisplay
 import com.freedar.radar.RadarFrame
+import com.freedar.radar.RadarCoolingDown
 import java.io.IOException
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CompletableDeferred
@@ -12,6 +13,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.maplibre.android.MapLibre
@@ -24,14 +27,24 @@ import org.maplibre.android.style.layers.PropertyFactory.rasterFadeDuration
 import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.TransitionOptions
 import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
+import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.tile.TileOperation
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.Point
 
 /** Main-thread native boundary. Owns one visible frame and at most one pending replacement. */
 class RadarMap(context: Context) : RadarDisplay {
     private val client = (context.applicationContext as FreedarApplication).httpClient
+    private val tileRequests = (context.applicationContext as FreedarApplication).radarTileRequests
     init { MapLibre.getInstance(context) }
     val view = MapView(context)
     lateinit var nativeMap: MapLibreMap
@@ -40,6 +53,37 @@ class RadarMap(context: Context) : RadarDisplay {
     private var visibleId: String? = null
     private var opacity = AppearanceSettings.DEFAULT_OPACITY
     private var presentingId: String? = null
+    var currentLocation: LocalPosition? = null
+        private set
+    var searchedLocation: LocalPosition? = null
+        private set
+
+    fun showCurrentLocation(position: LocalPosition) {
+        currentLocation = position
+        updateLocationMarkers()
+    }
+
+    fun showSearchedLocation(position: LocalPosition) {
+        searchedLocation = position
+        updateLocationMarkers()
+    }
+
+    private fun updateLocationMarkers() {
+        if (!::style.isInitialized || !style.isFullyLoaded || view.isDestroyed) return
+        fun marker(id: String, position: LocalPosition?, color: String, radius: Float) {
+            val features = FeatureCollection.fromFeatures(position?.let {
+                arrayOf(Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)))
+            } ?: emptyArray())
+            val source = style.getSourceAs<GeoJsonSource>(id)
+            if (source != null) source.setGeoJson(features) else {
+                style.addSource(GeoJsonSource(id, features))
+                style.addLayer(CircleLayer(id, id).withProperties(
+                    circleColor(color), circleRadius(radius), circleStrokeColor("#FFFFFF"), circleStrokeWidth(2f)))
+            }
+        }
+        marker(SEARCHED_LOCATION, searchedLocation, "#A855F7", 6f)
+        marker(CURRENT_LOCATION, currentLocation, "#2196F3", 6f)
+    }
 
     fun opacity(value: Float) {
         opacity = value
@@ -50,6 +94,8 @@ class RadarMap(context: Context) : RadarDisplay {
     private var sequence = 0
     private val mutableStatus = MutableStateFlow<String?>(null)
     val status = mutableStatus.asStateFlow()
+    private val mutableViewportCooldown = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val viewportCooldown = mutableViewportCooldown.asSharedFlow()
     private val mutableCoverageStatus = MutableStateFlow(CoverageStatus.UNKNOWN)
     val coverageStatus = mutableCoverageStatus.asStateFlow()
     private var coverage: CoverageFootprint? = null
@@ -63,7 +109,9 @@ class RadarMap(context: Context) : RadarDisplay {
         view.getMapAsync { it.addOnCameraMoveStartedListener(navigationListener) }
         view.addOnTileActionListener { operation, _, _, _, _, _, source ->
             if (source == visibleId && operation == TileOperation.Error) {
-                mutableStatus.value = "Some radar tiles are unavailable. Blank areas do not mean clear weather."
+                if (tileRequests.cooldownRemainingMillis > 0) {
+                    mutableViewportCooldown.tryEmit(Unit)
+                } else mutableStatus.value = "Some radar tiles are unavailable. Blank areas do not mean clear weather."
             }
         }
     }
@@ -91,7 +139,7 @@ class RadarMap(context: Context) : RadarDisplay {
             isTiltGesturesEnabled = false
             isCompassEnabled = false
             isLogoEnabled = false
-            // Individually linked credits are supplied by the Compose Info panel.
+            // Individually linked credits are supplied by the Compose Attributions panel.
             isAttributionEnabled = false
         }
         nativeMap.removeOnCameraMoveStartedListener(navigationListener)
@@ -128,6 +176,7 @@ class RadarMap(context: Context) : RadarDisplay {
                 }.forEach { it.setProperties(org.maplibre.android.style.layers.PropertyFactory.lineColor("#c3c9d1")) }
             }
             visibleId = null
+            updateLocationMarkers()
         } finally {
             view.removeOnDidFailLoadingMapListener(failure)
         }
@@ -175,7 +224,8 @@ class RadarMap(context: Context) : RadarDisplay {
             if (source == id) when (operation) {
                 TileOperation.EndParse -> parsed = true
                 TileOperation.Error -> {
-                    val error = IOException("Radar tiles unavailable")
+                    val remaining = tileRequests.cooldownRemainingMillis
+                    val error = if (remaining > 0) RadarCoolingDown(remaining) else IOException("Radar tiles unavailable")
                     tileFailure = error
                     ready.completeExceptionally(error)
                     presented.completeExceptionally(error)
@@ -251,6 +301,8 @@ class RadarMap(context: Context) : RadarDisplay {
     }
 
     companion object {
+        internal const val CURRENT_LOCATION = "current-location"
+        internal const val SEARCHED_LOCATION = "searched-location"
         private const val EMPTY_STYLE = """{"version":8,"sources":{},"layers":[
             {"id":"background","type":"background","paint":{"background-color":"#e9eeec"}}]}"""
     }
@@ -258,7 +310,7 @@ class RadarMap(context: Context) : RadarDisplay {
 
 /** CARTO's transport casings/fills and labels remain legible even at 100% radar opacity. */
 internal fun Style.radarReferenceLayer(): String? = layers.firstOrNull {
-    it is SymbolLayer || it.id.isCartoTransportLayer()
+    it is SymbolLayer || it.id.isCartoTransportLayer() || it.id == RadarMap.SEARCHED_LOCATION
 }?.id
 
 private fun String.isCartoTransportLayer() = startsWith("tunnel_") || startsWith("road_") || startsWith("bridge_")

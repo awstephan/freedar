@@ -24,7 +24,7 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 - Portrait and landscape; rotation preserves map and playback state.
 - Theme follows the system by default, with Light and Dark overrides.
 - First launch shows the contiguous USA without prompting for location permission. On later cold launches, existing location permission triggers one fresh foreground fix; remembered center/zoom is the fallback. Rotation and foreground return preserve the current camera.
-- Compact controls are always visible, with 20 dp icons and 48 dp touch targets. Top-left: Attributions (©); top-right: Locate and Search; bottom-left: Settings immediately followed by Info; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
+- Compact controls are always visible, with 24 dp icons, 28 dp rounded backgrounds, and invisible 48 dp touch targets. Top-left: Attributions (©); top-right: Locate and Search; bottom-left: Settings immediately followed by Info; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
 - Frame time is a small tag above the timeline, positioned at the displayed frame. Show it during playback/scrubbing and when paused on an older image; hide it when paused at the latest image.
 - Info turns red and adds a warning badge for stale data or update failures; its accessible description reports the condition. Its compact sections are Radar status (including Retry/Refresh), Legend, and Coverage & limitations. Historical selection alone does not trigger a stale-feed warning.
 - Attributions contains one linked provider name per line. No persistent status/coverage/credit cards; collapsed attribution still conflicts with CARTO's currently published visible-credit requirement (see VALIDATION.md).
@@ -41,6 +41,7 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 - Default speed: two frames/second. Settings also offer Slow (one) and Fast (four); newest-frame hold is one second.
 - Latest returns to the newest frame, paused and following updates.
 - Skip unavailable frames rather than blocking fresh data. Prioritize newest imagery, keep the last displayed image until its replacement is ready, and mark missing frames on the timeline.
+- Rate limiting is temporary cooldown, not a missing frame. Keep the displayed image and its timestamp, show a retry countdown, and automatically retry the pending frame when cooldown ends. New radar/coverage tile downloads are paced at 750 ms intervals; cached imagery bypasses pacing/backoff. Changing selection or backgrounding cancels pending presentation/retry work. Provider Retry-After supports seconds and HTTP dates, defaulting to one minute if absent or invalid.
 - Timestamp must always match the image displayed. RainViewer supplies composite frame-generation time, not exact local observation time; label accordingly.
 - Use the phone's time zone and 12/24-hour preference, with a time-zone label.
 - Flag the feed as stale when its newest available frame is older than 20 minutes, provisionally subject to provider validation. Selecting an old frame is not feed staleness.
@@ -53,6 +54,7 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 
 - Locate requests foreground location permission on demand, centers once, and zooms to a useful local-area view showing surrounding weather. Cold launches use the same one-shot flow only when permission is already granted, never prompting automatically.
 - Search selection uses the same local-area framing.
+- A blue, white-outlined point marks the latest successful location fix; a purple, white-outlined point marks the selected search result. Both are the same size and remain while panning, zooming, rotating, and changing themes. Each new fix or search selection replaces only its own point. Points are session-only; the blue point updates with one-shot Locate, not continuous tracking. Blue appears above purple when they coincide.
 - Both actions reset to newest radar, paused and following updates.
 - Ordinary panning/zooming preserves timeline state and never triggers recentering.
 - Locate has Cancel. Panning, zooming, or choosing a search result cancels pending location work; late results must not move the map.

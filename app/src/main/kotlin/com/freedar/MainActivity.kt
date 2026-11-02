@@ -125,6 +125,8 @@ open class MainActivity : ComponentActivity() {
         startupLocationPending = !restored && startup.getBoolean("opened", false)
         startup.edit().putBoolean("opened", true).apply()
         val timelineState = savedInstanceState?.takeIf { restored }
+        timelineState?.getDoubleArray("currentLocation")?.let { map.showCurrentLocation(LocalPosition(it[0], it[1])) }
+        timelineState?.getDoubleArray("searchedLocation")?.let { map.showSearchedLocation(LocalPosition(it[0], it[1])) }
         locationLatestPending = timelineState?.getBoolean("locationLatestPending") ?: false
         map.view.getMapAsync { native ->
             if (!restored) {
@@ -146,6 +148,7 @@ open class MainActivity : ComponentActivity() {
             restoredSelection = selection, restoredMode = mode,
             restoredAwaySince = timelineState?.takeIf { it.containsKey("radarAway") }?.getLong("radarAway"))
         positioning = OneShotPositioning(positionSource()) { position ->
+            map.showCurrentLocation(position)
             map.centerLocal(position)
             if (styleReady && !returning) timeline { radar.latest() }
             else locationLatestPending = true
@@ -165,6 +168,7 @@ open class MainActivity : ComponentActivity() {
                 val coverageStatus by map.coverageStatus.collectAsState()
                 val positionState by positioning.state.collectAsState()
                 val notices = listOfNotNull(
+                    "Radar cooling down · retrying in ${state.cooldownSeconds}s".takeIf { state.cooldownSeconds > 0 },
                     "Stale radar feed".takeIf { state.stale },
                     "Refresh failed".takeIf { state.refreshError != null },
                     "Radar imagery unavailable".takeIf { state.imageError != null || tileStatus != null },
@@ -194,6 +198,7 @@ open class MainActivity : ComponentActivity() {
                     locateEnabled = true,
                     selectPlace = { place ->
                         navigationStarted()
+                        map.showSearchedLocation(place.position)
                         map.centerLocal(place.position)
                         timeline { radar.latest() }
                     },
@@ -215,6 +220,7 @@ open class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { map.viewportCooldown.collect { radar.retryViewport() } }
                 refresh()
                 var elapsed = 0
                 try {
@@ -294,7 +300,9 @@ open class MainActivity : ComponentActivity() {
                              listOfNotNull("Offline".takeIf { state.offline }, "Saved radar".takeIf { state.retainedHistory })
                                  .joinToString(" · ") + " · retained imagery is not live",
                              style = MaterialTheme.typography.bodySmall)
-                        if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
+                        if (state.cooldownSeconds > 0) Text("Radar cooling down · retrying in ${state.cooldownSeconds}s",
+                            style = MaterialTheme.typography.bodySmall)
+                        else if (state.loading && frame != null) Text("Updating radar…", style = MaterialTheme.typography.bodySmall)
                         listOfNotNull(base, state.error, tiles).forEach {
                             Text(it, style = MaterialTheme.typography.bodySmall)
                         }
@@ -367,6 +375,8 @@ open class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("processSession", (application as FreedarApplication).processSession)
         outState.putBoolean("locationLatestPending", locationLatestPending)
+        map.currentLocation?.let { outState.putDoubleArray("currentLocation", doubleArrayOf(it.latitude, it.longitude)) }
+        map.searchedLocation?.let { outState.putDoubleArray("searchedLocation", doubleArrayOf(it.latitude, it.longitude)) }
         map.view.onSaveInstanceState(outState)
         val state = recreationState ?: if (isChangingConfigurations) stateBeforeStop ?: radar.state.value
             else radar.state.value

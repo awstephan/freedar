@@ -25,6 +25,82 @@ class PlaybackTest {
         override suspend fun history() = frames
     }
 
+    @Test fun `throttled playback retains image and retries same frame without marking gaps`() = runTest {
+        val attempts = mutableListOf<RadarFrame>()
+        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {
+            attempts += it
+            if (it == frames.first() && testScheduler.currentTime < 2000) throw RadarCoolingDown(2000)
+        }, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        val playing = launch { app.play() }; runCurrent()
+        assertEquals(frames.last(), app.state.value.frame)
+        assertEquals(2L, app.state.value.cooldownSeconds)
+        assertTrue(app.state.value.unavailable.isEmpty())
+        assertNull(app.state.value.imageError)
+        advanceTimeBy(1000); runCurrent()
+        assertEquals(1L, app.state.value.cooldownSeconds)
+        assertEquals(listOf(frames.last(), frames.first()), attempts)
+        advanceTimeBy(1000); runCurrent()
+        assertEquals(frames.first(), app.state.value.frame)
+        assertEquals(0L, app.state.value.cooldownSeconds)
+        assertTrue(app.state.value.unavailable.isEmpty())
+        app.pause(); playing.join()
+    }
+
+    @Test fun `cached selection supersedes cooldown and cancels its automatic retry`() = runTest {
+        val attempts = mutableListOf<RadarFrame>()
+        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {
+            attempts += it
+            if (it == frames.first()) throw RadarCoolingDown(60_000)
+        }, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        val cold = launch { app.select(frames.first()) }; runCurrent()
+        assertEquals(60L, app.state.value.cooldownSeconds)
+        app.select(frames[1]); cold.join()
+        advanceTimeBy(61_000); runCurrent()
+        assertEquals(frames[1], app.state.value.frame)
+        assertEquals(0L, app.state.value.cooldownSeconds)
+        assertEquals(listOf(frames.last(), frames.first(), frames[1]), attempts)
+        assertTrue(app.state.value.unavailable.isEmpty())
+    }
+
+    @Test fun `foreground retries a selection interrupted by cooldown without marking it unavailable`() = runTest {
+        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {
+            if (it == frames.first() && testScheduler.currentTime < 2000) throw RadarCoolingDown(2000)
+        }, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        val cold = launch { app.select(frames.first()) }; runCurrent()
+        assertEquals(2L, app.state.value.cooldownSeconds)
+        app.background(); runCurrent(); cold.join()
+        advanceTimeBy(3000)
+        app.foreground()
+        assertEquals(frames.first(), app.state.value.frame)
+        assertEquals(TimelineMode.SELECTED, app.state.value.mode)
+        assertEquals(0L, app.state.value.cooldownSeconds)
+        assertTrue(app.state.value.unavailable.isEmpty())
+    }
+
+    @Test fun `foreground resumes cooldown recovery for a paused panned frame`() = runTest {
+        var throttled = false
+        var attempts = 0
+        val app = LatestRadar(provider(), Clock.systemUTC(), RadarDisplay {
+            attempts++
+            if (throttled) throw RadarCoolingDown(2000)
+        }, monotonicMillis = { testScheduler.currentTime })
+        app.refresh()
+        app.select(frames[1])
+        throttled = true
+        val retry = launch { app.retryViewport() }; runCurrent()
+        assertEquals(2L, app.state.value.cooldownSeconds)
+        app.background(); runCurrent(); retry.join()
+        val before = attempts
+        throttled = false
+        app.foreground()
+        assertEquals(before + 1, attempts)
+        assertEquals(frames[1], app.state.value.frame)
+        assertEquals(TimelineMode.SELECTED, app.state.value.mode)
+    }
+
     @Test fun `speed choices change presentation cadence but newest always holds one second`() = runTest {
         for ((speed, interval) in listOf(PlaybackSpeed.SLOW to 1000L, PlaybackSpeed.NORMAL to 500L,
             PlaybackSpeed.FAST to 250L)) {
