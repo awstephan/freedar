@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="192" android:viewportHeight="192">
+    <group android:pivotX="96" android:pivotY="96" android:scaleX="0.9" android:scaleY="0.9">
+        <!-- A simple drop with a location-dot cutout stays legible when launcher-tinted. -->
+        <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+            android:pathData="M96,33c-10,16 -48,52 -48,78a48,48 0,0 0,96 0c0,-26 -38,-62 -48,-78Z M82,123a6,6 0,1 0,-12 0a6,6 0,1 0,12 0" />
+    </group>
+</vector>

@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="192" android:viewportHeight="192">
+    <!-- Keep the drop inside the adaptive icon's central safe zone. -->
+    <group android:pivotX="96" android:pivotY="96" android:scaleX="0.9" android:scaleY="0.9">
+        <path android:pathData="M96,33c-10,16 -48,52 -48,78a48,48 0,0 0,96 0c0,-26 -38,-62 -48,-78Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="62" android:startY="56"
+                    android:endX="127" android:endY="151"
+                    android:startColor="#73739C" android:endColor="#3C405E" />
+            </aapt:attr>
+        </path>
+        <group>
+            <clip-path android:pathData="M96,33c-10,16 -48,52 -48,78a48,48 0,0 0,96 0c0,-26 -38,-62 -48,-78Z" />
+            <path android:strokeColor="#A5A3C2" android:strokeAlpha="0.7" android:strokeWidth="2"
+                android:pathData="M99,123a23,23 0,1 0,-46 0a23,23 0,1 0,46 0M121,123a45,45 0,1 0,-90 0a45,45 0,1 0,90 0" />
+        </group>
+        <path android:fillColor="#FFF5E5"
+            android:pathData="M82,123a6,6 0,1 0,-12 0a6,6 0,1 0,12 0" />
+    </group>
+</vector>

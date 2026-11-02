@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title">
+  <title id="title">Freedar icon concept: Rain window</title>
+  <defs><clipPath id="map-window"><rect x="36" y="36" width="120" height="120" rx="18"/></clipPath></defs>
+  <path fill="#1d2036" d="M0 0h192v192H0z"/>
+  <rect x="36" y="36" width="120" height="120" rx="18" fill="#292d46"/>
+  <g clip-path="url(#map-window)">
+  <g fill="none" stroke="#41415c" stroke-width="3" stroke-linecap="round">
+    <path d="m38 59 42 14 27-28 45 12M36 123l45-20 34 17 40-24M67 38l-4 55 35 58m37-112-15 46 30 65"/>
+  </g>
+  <g transform="translate(-35 -35) scale(1.4)" opacity="0.65">
+  <path d="M39 85c-4-13 5-21 11-27 5-5 3-13 13-16 9-3 13 3 19 0 10-4 17 2 13 10-4 9-17 9-20 17-3 7 1 14-5 20-7 7-8 19-19 16-9-2-10-12-12-20Z" fill="#88DDEE"/>
+  <path d="M49 80c-2-10 9-13 11-21 2-6 11-11 17-6 5 5-8 11-10 18-2 8-1 16-8 19-6 3-9-3-10-10Z" fill="#0077AA"/>
+  <path d="M75 143c-2-11 12-15 17-25 5-8 0-16 5-25 4-7 11-8 13-18 2-10 13-15 22-11 7 3 18-2 23 6 5 9-7 17-7 25 0 9-12 13-13 23-2 12-13 14-16 25-3 11-17 7-24 12-9 5-18-2-20-12Z" fill="#88DDEE"/>
+  <path d="M88 140c0-6 13-11 15-21 3-10-1-17 6-24 8-6 4-17 14-19 8-2 16-3 18 3 3 7-9 10-9 18-1 11-12 15-13 26-1 8-12 9-17 17-5 6-13 7-14 0Z" fill="#0077AA"/>
+  <path d="M108 118c-4-8 5-15 7-21 3-8 0-13 9-14 9-1 7 9 2 14-5 6-1 11-7 17-4 4-7 10-11 4Z" fill="#FFEE00"/>
+  <path d="M116 100c-1-5 3-11 7-10 5 3-1 9-2 13-3 5-6 2-5-3Z" fill="#FF4400"/>
+  </g>
+  </g>
+  <circle cx="70" cy="114" r="13" fill="#1d2036"/>
+  <circle cx="70" cy="114" r="7" fill="#fff5e5"/>
+</svg>

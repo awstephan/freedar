@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title">
+  <title id="title">Freedar icon concept: Radar drop</title>
+  <defs>
+    <linearGradient id="drop" x1="62" y1="56" x2="127" y2="151" gradientUnits="userSpaceOnUse"><stop stop-color="#73739c"/><stop offset="1" stop-color="#3c405e"/></linearGradient>
+    <clipPath id="clip"><path d="M96 33c-10 16-48 52-48 78a48 48 0 0 0 96 0c0-26-38-62-48-78Z"/></clipPath>
+  </defs>
+  <path fill="#1d2036" d="M0 0h192v192H0z"/>
+  <path d="M96 33c-10 16-48 52-48 78a48 48 0 0 0 96 0c0-26-38-62-48-78Z" fill="url(#drop)"/>
+  <g clip-path="url(#clip)">
+    <g fill="none" stroke="#a5a3c2" stroke-width="2" opacity=".7"><circle cx="76" cy="123" r="23"/><circle cx="76" cy="123" r="45"/></g>
+    <!-- Oversized precipitation extends beyond the drop, like a cropped map viewport. -->
+    <g transform="translate(-28 -24) scale(1.35)" opacity="0.65">
+    <path d="M80 155c-6-9 3-18 10-24 6-5 0-14 4-23 4-10 15-10 16-21 1-10 9-16 19-12 9 4 8 15 16 18 12 6 9 20 2 26-8 6-3 16-13 22-8 5-11 16-21 15-12-1-24 12-33-1Z" fill="#88DDEE"/>
+    <path d="M93 147c-2-7 12-14 11-22-2-11 2-15 10-21 7-7 3-18 11-19 10 0 6 12 12 16 8 7-2 13-6 19-5 6 0 14-9 17-8 2-9 12-17 13-5 1-10 2-12-3Z" fill="#0077AA"/>
+    <path d="M111 129c-4-7 4-13 8-18 3-5-1-12 6-14 8 0 8 11 3 16-5 6-3 13-9 17-4 3-6 2-8-1Z" fill="#FFEE00"/>
+    <path d="M117 117c0-5 7-11 9-6 2 4-4 13-7 11-2-1-2-3-2-5Z" fill="#FF4400"/>
+    </g>
+  </g>
+  <circle cx="76" cy="123" r="6" fill="#fff5e5"/>
+</svg>
