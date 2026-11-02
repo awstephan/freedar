@@ -1,18 +1,60 @@
 # Freedar
 
-A native Android map with historical precipitation radar, offline city search,
-one-shot location, appearance settings and bounded offline imagery. Integrated
-testing APK evidence and release limitations are in [issue #10 validation](docs/validation/issue-10.md),
-under [spec #1](https://github.com/awstephan/freedar/issues/1).
+A native Android precipitation-radar app with an uncluttered, full-screen map,
+animated historical radar, offline city search and one-shot location. No user
+account or Google Play Services is required.
 
-The owner has chosen to retain the newer compact-map layout and startup-location
-changes. See the [revised design](DESIGN.md) and
-[compact-map validation and decision record](docs/validation/compact-map.md).
+## Current status
+
+**Version 0.1.0 is an implemented testing build.** The current app includes the
+compact corner controls, moving timeline timestamp, brighter dark basemap and
+permission-gated startup location introduced on 2026-11-01. The
+[current design](DESIGN.md) records these revisions to the
+[original specification](https://github.com/awstephan/freedar/issues/1).
+
+- **Radar:** approximately two hours of RainViewer history, playback, scrubbing,
+  Latest, freshness warnings, a rain/snow legend and static coverage shading.
+- **Navigation:** worldwide map exploration, bundled offline city/town search,
+  one-shot Locate and a remembered map view. The first-use overview shows the
+  contiguous USA; Alaska, Hawaii and international locations remain navigable.
+- **Appearance:** System/Light/Dark themes, adjustable radar opacity and 1/2/4-fps
+  playback settings, with persistent controls in portrait and landscape.
+- **Offline use:** recently viewed map/radar resources share a bounded 100 MB
+  device store. Radar expires two hours after its original frame time; this is
+  reuse of viewed imagery, not a complete offline map download.
+
+Unit tests, lint, APK builds and native AOSP Android 8.0 emulator checks are
+recorded in the [integrated validation](docs/validation/issue-10.md) and the later
+[compact-map validation](docs/validation/compact-map.md). These are recorded
+testing results, not physical-device performance guarantees.
+
+The debug APK is the installable testing artifact. Release builds are unsigned;
+release signing, public APK publication and source licensing remain maintainer
+decisions. The current Info-only credit layout also has an unresolved CARTO
+attribution requirement, documented below.
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
 target SDK are 35. There is no Play Services dependency. Foreground location
 permission is requested only when you explicitly choose **Locate**.
+
+## Using the map
+
+| Control | Behavior |
+| --- | --- |
+| **Info**, top-left | Frame/feed age, Retry/Refresh, coverage explanation, radar legend and linked credits. A red icon with a warning badge indicates stale/offline/failed data. |
+| **Locate**, top-right | Requests permission when needed, obtains one fresh fix and centers at zoom 9. Becomes Cancel while waiting. |
+| **Search**, top-right | Searches the bundled city/town database when you submit using the keyboard's Search action. Selecting a result centers at zoom 9. |
+| **Settings**, bottom-left | Theme, radar opacity, playback speed, Clear downloaded data and About. |
+| **Timeline and Play/Pause**, bottom-right | Scrub to a historical frame or animate available history. Latest returns to newest imagery, paused and following updates. |
+
+Search selection and successful location reset radar to Latest. Ordinary pan/zoom
+preserves the selected time. Cold launches attempt location only if permission is
+already granted, with the remembered view as fallback. There is no ongoing tracking
+or background radar polling.
+
+The app focuses on historical precipitation radar: forecasts, weather dashboards,
+alerts, notifications, satellite imagery and provider switching are not implemented.
 
 ## Build and run
 
@@ -57,8 +99,9 @@ use anonymous CARTO access. The key is embedded in the installed app, so users
 never need a key/account. Mobile client keys are extractable from APKs; never use
 a private backend credential here. Build outputs and `local.properties` are ignored.
 
-`./gradlew :app:assembleRelease` builds an unsigned release APK. Signing and public
-distribution are not configured or authorized by this slice.
+`./gradlew :app:assembleRelease` builds
+`app/build/outputs/apk/release/app-release-unsigned.apk`. Release signing and public
+distribution are not configured.
 
 ## CARTO provisioning and cost
 
@@ -70,7 +113,7 @@ distribution are not configured or authorized by this slice.
   services. Monitor the dashboard and contact CARTO about a higher noncommercial
   allowance rather than enabling a paid plan. Recheck terms before publishing.
 - Use a key suitable for native app requests, without browser Referer/Origin
-  restrictions. This slice does **not** send CARTO's optional mobile-app restriction
+  restrictions. The app does **not** send CARTO's optional mobile-app restriction
   headers; do not enable that restriction until package/certificate headers are
   implemented and tested. Keep the key specific to Freedar.
 - The app requests the **current hosted Positron or Dark Matter style**, not legacy v1 assets.
@@ -146,8 +189,8 @@ distribution are not configured or authorized by this slice.
   Native tile errors remain visible; blank pixels are never called clear weather.
 - Native radar source maxzoom is **7**; camera maxzoom is **18**. Zooming closer
   magnifies the same radar pixels. Pan/pinch remain available during loading and
-   failures; rotation and tilt are disabled. The initial overview frames the contiguous USA,
-   with worldwide panning (including Alaska and Hawaii).
+  failures; rotation and tilt are disabled. The initial overview frames the contiguous USA,
+  with worldwide panning (including Alaska and Hawaii).
 - Opening/foreground return, explicit Refresh/Retry and a five-minute foreground
   timer refresh the manifest. Following mode updates imagery; a historical
   selection stays selected. Backgrounding suspends playback and cancels outstanding
@@ -161,9 +204,9 @@ distribution are not configured or authorized by this slice.
 - Offline, loading, manifest refresh failure, imagery failure, and stale-feed notices
   are independent. A successful historical presentation cannot dismiss a failed
   manifest refresh. Retry reloads a selected viewport without switching its time.
-   A red Info icon with a warning badge indicates stale/offline/failed data; its panel contains
-   displayed-frame age, newest-feed age, diagnostics and Retry/Refresh. It also contains the
-   coverage explanation and radar legend.
+  A red Info icon with a warning badge indicates stale/offline/failed data; its panel contains
+  displayed-frame age, newest-feed age, diagnostics and Retry/Refresh. It also contains the
+  coverage explanation and radar legend.
 - RainViewer's infrequently updated coverage mask is a **static footprint**, not
   live completeness. Black mask pixels shade known outside-footprint areas; inside
   the footprint live availability remains unknown, and blank radar never means clear
@@ -192,9 +235,8 @@ distribution are not configured or authorized by this slice.
   frame. Warm playback reuses downloaded bytes, not a freshly downloaded sequence.
   Radar pixels and frame descriptors expire two hours after original frame time;
   saved-history fallback preserves actual time and failed-refresh/offline/stale notices.
-  Fresh launches
-   restore remembered center/zoom as a fallback, attempt current location when already permitted,
-   and start latest paused/following; theme and
+  Fresh launches restore remembered center/zoom as a fallback, attempt current
+  location when already permitted, and start latest paused/following; theme and
   orientation recreation preserve the existing timeline behavior.
 
 ## Tests and checks
@@ -241,14 +283,36 @@ glyph loading and named rendered symbol features, and captures a screenshot in
 the app's cache. Without the `liveCarto=true` argument this live-service test is
 skipped, keeping routine fixture tests independent of provider access.
 
-See [foundation validation](docs/validation/issue-2.md) and
-[playback validation](docs/validation/issue-3.md), and
-[freshness validation](docs/validation/issue-4.md), and
-[positioning validation](docs/validation/issue-6.md), and
-[offline search validation](docs/validation/issue-7.md), and
-[appearance validation](docs/validation/issue-8.md), and
-[remembered view/storage validation](docs/validation/issue-9.md) for actual results, limitations
-and the remaining live-service/device checks.
+### Recorded validation
+
+Start with the [compact-map checks](docs/validation/compact-map.md) for the latest
+UI/startup changes and [integrated testing results](docs/validation/issue-10.md)
+for cross-feature, geographic and process-restart evidence. APK hashes and sizes
+in the integrated record identify that earlier build, not every subsequent build.
+
+Earlier feature evidence covers [map rendering](docs/validation/issue-2.md),
+[playback](docs/validation/issue-3.md), [freshness](docs/validation/issue-4.md),
+[coverage](docs/validation/issue-5.md), [positioning](docs/validation/issue-6.md),
+[search](docs/validation/issue-7.md), [appearance](docs/validation/issue-8.md),
+[map storage](docs/validation/issue-9.md) and
+[offline radar](docs/validation/issue-9-radar.md).
+
+## Project structure and documentation
+
+| Path | Purpose |
+| --- | --- |
+| `app/` | Android/Compose UI, MapLibre rendering, platform location, search, networking and device storage; unit and native instrumentation tests. |
+| `radar/` | Android-free Kotlin radar behavior, provider integration, timeline/playback state and behavioral tests. |
+| `tools/` | Bundled place-search dataset generation tooling. |
+| [DESIGN.md](DESIGN.md) | Agreed product design, including the retained compact-map revisions. |
+| [docs/place-search.md](docs/place-search.md) | GeoNames provenance, dataset reproduction and search behavior. |
+| [docs/radar-appearance.md](docs/radar-appearance.md) | Legend, theme, opacity and playback settings. |
+| [docs/downloaded-imagery.md](docs/downloaded-imagery.md) | Cache boundaries, provider retention, expiry and offline behavior. |
+| [docs/validation/](docs/validation/) | Dated implementation and test evidence, with limitations. |
+
+[VALIDATION.md](VALIDATION.md) is the initial technical investigation, with a later
+attribution finding. Its original unresolved-check list predates implementation;
+use the dated feature and integrated records above for current evidence.
 
 ## Provider contracts and reference
 
