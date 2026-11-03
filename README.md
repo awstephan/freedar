@@ -4,13 +4,28 @@ A native Android precipitation-radar app with an uncluttered, full-screen map,
 animated historical radar, offline city search and one-shot location. No user
 account or Google Play Services is required.
 
-## Current status
+## Download and install
 
-**Version 0.1.0 is an implemented testing build.** The current app includes the
-compact corner controls, moving timeline timestamp, brighter dark basemap and
-permission-gated startup location introduced on 2026-11-01. The
-[current design](DESIGN.md) records these revisions to the
-[original specification](https://github.com/awstephan/freedar/issues/1).
+**[Download Freedar v0.1.0](https://github.com/awstephan/freedar/releases/tag/v0.1.0)**
+for **Android 8.0 or newer**. The release includes a signed universal APK
+(`freedar-0.1.0.apk`, approximately 76 MB) and a `SHA256SUMS` checksum file.
+
+1. Download the APK to your Android device.
+2. Open it and allow installation from your browser or file manager when Android asks.
+3. Launch Freedar. No account, API-key setup, Play Store, or Google Play Services is needed.
+
+If you previously installed a **debug build**, uninstall it first: its signing
+certificate differs from the release certificate. Uninstalling removes local
+settings and cached imagery.
+
+**Updates:** download a newer signed APK from [Releases](https://github.com/awstephan/freedar/releases)
+and install it over the existing release to retain your settings. There is no
+automatic updater.
+
+Release downloads follow repository visibility: while this repository is private,
+GitHub requires repository access; once public, these same links work for everyone.
+
+## Features
 
 - **Radar:** approximately two hours of RainViewer history, playback, scrubbing,
   Latest, freshness warnings, a rain/snow legend and static coverage shading.
@@ -28,10 +43,18 @@ recorded in the [integrated validation](docs/validation/issue-10.md) and the lat
 [compact-map validation](docs/validation/compact-map.md). These are recorded
 testing results, not physical-device performance guarantees.
 
-The debug APK is the installable testing artifact. Release builds use a
-maintainer-owned signing key; public APK publication remains a maintainer decision.
-Freedar's source is licensed under BSD 3-Clause. The current collapsed credit layout
-has an unresolved CARTO attribution requirement, documented below.
+Release APKs use a maintainer-owned signing key. Freedar's source is licensed under
+BSD 3-Clause. The [current design](DESIGN.md) records the implemented experience
+and revisions to the [original specification](https://github.com/awstephan/freedar/issues/1).
+
+### Limitations
+
+- Radar shows historical precipitation, not forecasts or weather alerts.
+- Initial history loading can be slow under provider request limits. Devices sharing
+  an IP address share RainViewer's allowance.
+- Offline use reuses recently viewed imagery; it does not download complete maps.
+- The compact attribution layout has an unresolved CARTO visible-credit requirement;
+  see [provider attribution](#carto-provisioning-and-cost).
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
@@ -150,7 +173,7 @@ Compare the signer's SHA-256 certificate digest with the release-key fingerprint
 recorded during setup. Existing debug installations must be uninstalled before
 installing this differently signed release, which removes their local app data.
 Future updates must use this release key and a higher `versionCode`.
-Public distribution is not yet configured.
+Signed APKs and checksums are distributed through [GitHub Releases](https://github.com/awstephan/freedar/releases).
 
 ## CARTO provisioning and cost
 
@@ -391,9 +414,9 @@ caching, preloading and distribution subject to the published site terms, with n
 additional restrictions. Radar storage uses a two-hour frame-based retention window.
 This is maintainer-confirmed permission, not independently inspected correspondence;
 see [downloaded imagery](docs/downloaded-imagery.md). CARTO retains its separate
-device-cache limits. Public release authorization remains an explicit
-maintainer decision. Integrated validation does not authorize publication; see
-[release decisions and limits](docs/validation/issue-10.md#release-decisions-and-limits).
+device-cache limits. The earlier [release decisions and limits](docs/validation/issue-10.md#release-decisions-and-limits)
+record the pre-release testing context; current download and signing instructions
+are above.
 
 ## License
 
