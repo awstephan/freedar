@@ -25,6 +25,23 @@ automatic updater.
 Release downloads follow repository visibility: while this repository is private,
 GitHub requires repository access; once public, these same links work for everyone.
 
+## Screenshots
+
+| Dark radar | Light radar | Offline search |
+| :---: | :---: | :---: |
+| [<img src="docs/screenshots/radar-dark.png" width="250" alt="Dark-theme precipitation radar over Austin, Texas">](docs/screenshots/radar-dark.png) | [<img src="docs/screenshots/radar-light.png" width="250" alt="Light-theme precipitation radar over Austin, Texas">](docs/screenshots/radar-light.png) | [<img src="docs/screenshots/search.png" width="250" alt="Offline city search showing results for Denver">](docs/screenshots/search.png) |
+
+Select a screenshot to view it at full resolution.
+
+<details>
+<summary>More screenshots</summary>
+
+| Info and legend | Settings | Attributions |
+| :---: | :---: | :---: |
+| [<img src="docs/screenshots/info.png" width="250" alt="Radar freshness, rain and snow legend, and coverage information">](docs/screenshots/info.png) | [<img src="docs/screenshots/settings.png" width="250" alt="Radar opacity, theme, and playback speed settings">](docs/screenshots/settings.png) | [<img src="docs/screenshots/attributions.png" width="250" alt="Map and data provider attribution panel">](docs/screenshots/attributions.png) |
+
+</details>
+
 ## Features
 
 - **Radar:** approximately two hours of RainViewer history, playback, scrubbing,
