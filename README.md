@@ -402,3 +402,8 @@ Third-party libraries and bundled data retain their respective licenses; the
 bundled GeoNames place data is licensed under CC BY 4.0. Map and radar services
 remain subject to their providers' terms. The project license does not grant
 rights to those services, credentials, or third-party content.
+
+Settings → About → **Software licenses (offline)** displays the license texts and
+notices packaged in the APK, including GeoNames attribution and modification
+details. See [third-party notices](docs/third-party-notices.md) for the dependency
+audit, regeneration command, and APK verification step.

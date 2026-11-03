@@ -3,7 +3,8 @@
 Freedar derives its gazetteer from **GeoNames**, licensed under
 [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
 Source: <https://www.geonames.org/>; [source descriptions and schema](https://download.geonames.org/export/dump/readme.txt).
-The app links GeoNames in persistent map credits and the license in Search.
+The app links GeoNames in the attribution panel and Settings → About, and the
+license in Search. Settings also provides offline license and modification notices.
 The database is modified from the source: selected columns, joined display names,
 normalized/deduplicated search aliases, and a SQLite index.
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,6 +26,8 @@ fun SettingsSurface(settings: AppearanceSettings,
     val scope = rememberCoroutineScope()
     var clearing by remember { mutableStateOf(false) }
     var downloadMessage by remember { mutableStateOf<String?>(null) }
+    var showLicenses by rememberSaveable { mutableStateOf(false) }
+    if (showLicenses) LicenseNotices { showLicenses = false }
     BackHandler(onBack = dismiss)
     Surface(shape = MaterialTheme.shapes.large, tonalElevation = 3.dp) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -66,6 +69,7 @@ fun SettingsSurface(settings: AppearanceSettings,
             Text("Version ${BuildConfig.VERSION_NAME}")
             SourceLink("GitHub project", "https://github.com/awstephan/freedar")
             SourceLink("Freedar license · BSD 3-Clause", "https://github.com/awstephan/freedar/blob/HEAD/LICENSE")
+            TextButton(onClick = { showLicenses = true }) { Text("Software licenses (offline)") }
             SourceLink("Radar: RainViewer", "https://www.rainviewer.com/")
             SourceLink("© OpenStreetMap contributors", "https://www.openstreetmap.org/copyright")
             SourceLink("© CARTO", "https://carto.com/attribution/")

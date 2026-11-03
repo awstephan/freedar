@@ -52,7 +52,7 @@ android {
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     androidResources { noCompress += "gzip" }
 }
-tasks.matching { it.name == "preReleaseBuild" || it.name == "validateSigningRelease" }.configureEach {
+tasks.matching { it.name in setOf("packageRelease", "packageReleaseBundle", "validateSigningRelease") }.configureEach {
     dependsOn(validateReleaseConfiguration)
 }
 dependencies {
@@ -71,4 +71,23 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+}
+
+// Input to tools/licenses/generate.py; only shipped runtime artifacts, not test/build tools.
+tasks.register("exportLicenseArtifacts") {
+    val output = layout.buildDirectory.file("reports/licenses/artifacts.tsv")
+    outputs.file(output)
+    outputs.upToDateWhen { false }
+    doLast {
+        val artifacts = configurations.getByName("releaseRuntimeClasspath").resolvedConfiguration.resolvedArtifacts
+            .filter { it.moduleVersion.id.group != rootProject.name }
+            .distinctBy { it.moduleVersion.id.toString() to it.file }
+            .sortedBy { it.moduleVersion.id.toString() }
+        output.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(artifacts.joinToString("\n", postfix = "\n") {
+                "${it.moduleVersion.id}\t${it.file.absolutePath}"
+            })
+        }
+    }
 }
