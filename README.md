@@ -28,10 +28,10 @@ recorded in the [integrated validation](docs/validation/issue-10.md) and the lat
 [compact-map validation](docs/validation/compact-map.md). These are recorded
 testing results, not physical-device performance guarantees.
 
-The debug APK is the installable testing artifact. Release builds are unsigned;
-release signing, public APK publication and source licensing remain maintainer
-decisions. The current collapsed credit layout also has an unresolved CARTO
-attribution requirement, documented below.
+The debug APK is the installable testing artifact. Release builds use a
+maintainer-owned signing key; public APK publication remains a maintainer decision.
+Freedar's source is licensed under BSD 3-Clause. The current collapsed credit layout
+has an unresolved CARTO attribution requirement, documented below.
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO Positron/Dark Matter
 vector maps and RainViewer radar. Android 8.0 (API 26) is the minimum; compile and
@@ -108,9 +108,49 @@ use anonymous CARTO access. The key is embedded in the installed app, so users
 never need a key/account. Mobile client keys are extractable from APKs; never use
 a private backend credential here. Build outputs and `local.properties` are ignored.
 
-`./gradlew :app:assembleRelease` builds
-`app/build/outputs/apk/release/app-release-unsigned.apk`. Release signing and public
-distribution are not configured.
+### Signed release builds
+
+Release signing uses the JKS keystore at
+`~/.local/share/freedar/signing/freedar-release.jks`, alias `freedar`, with the same
+password for the store and key. Override the path with `FREEDAR_KEYSTORE_PATH`
+if needed. Keep the keystore backed up and its password in your password manager.
+
+In an interactive Bash terminal, with JDK 17 and the Android SDK configured:
+
+```bash
+(
+  set -e
+  # Load the project's CARTO client key, if kept in .env.
+  set -a
+  source .env
+  set +a
+  read -r -s -p 'Freedar signing password: ' FREEDAR_KEY_PASSWORD
+  printf '\n'
+  export FREEDAR_KEY_PASSWORD
+  ./gradlew --no-daemon --no-configuration-cache :app:assembleRelease
+)
+```
+
+The subshell keeps the password out of the parent shell after the build. If the
+CARTO key is already exported or in `local.properties`, omit the `.env` loading
+lines. Do not enable shell tracing when entering or using signing credentials.
+
+The signed artifact is `app/build/outputs/apk/release/app-release.apk`. Release
+builds fail if the keystore, password or CARTO key is missing. Debug builds and
+fixture tests do not require these release credentials.
+
+Verify the APK using the Android SDK build tools:
+
+```sh
+"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs \
+  app/build/outputs/apk/release/app-release.apk
+```
+
+Compare the signer's SHA-256 certificate digest with the release-key fingerprint
+recorded during setup. Existing debug installations must be uninstalled before
+installing this differently signed release, which removes their local app data.
+Future updates must use this release key and a higher `versionCode`.
+Public distribution is not yet configured.
 
 ## CARTO provisioning and cost
 
@@ -269,7 +309,9 @@ or public network access (after dependency download).
   -Pandroid.testInstrumentationRunnerArguments.class=com.freedar.MapRenderingTest
 
 # Full checks
-./gradlew test :app:lintDebug :app:assembleDebug :app:assembleRelease
+./gradlew test :app:lintDebug :app:assembleDebug
+# With release credentials configured as above:
+./gradlew --no-daemon --no-configuration-cache :app:lintRelease :app:assembleRelease
 ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest
 ```
 
@@ -349,6 +391,14 @@ caching, preloading and distribution subject to the published site terms, with n
 additional restrictions. Radar storage uses a two-hour frame-based retention window.
 This is maintainer-confirmed permission, not independently inspected correspondence;
 see [downloaded imagery](docs/downloaded-imagery.md). CARTO retains its separate
-device-cache limits. Public release authorization and source licensing remain explicit
-maintainer decisions. Integrated validation does not authorize publication; see
+device-cache limits. Public release authorization remains an explicit
+maintainer decision. Integrated validation does not authorize publication; see
 [release decisions and limits](docs/validation/issue-10.md#release-decisions-and-limits).
+
+## License
+
+Freedar's original source code is licensed under the [BSD 3-Clause License](LICENSE).
+Third-party libraries and bundled data retain their respective licenses; the
+bundled GeoNames place data is licensed under CC BY 4.0. Map and radar services
+remain subject to their providers' terms. The project license does not grant
+rights to those services, credentials, or third-party content.

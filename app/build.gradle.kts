@@ -9,6 +9,16 @@ val local = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 val cartoKey = providers.environmentVariable("CARTO_API_KEY").orElse(local.getProperty("CARTO_API_KEY", "")).get()
+val releaseKeystore = file(providers.environmentVariable("FREEDAR_KEYSTORE_PATH")
+    .orElse("${System.getProperty("user.home")}/.local/share/freedar/signing/freedar-release.jks").get())
+val releaseKeyPassword = providers.environmentVariable("FREEDAR_KEY_PASSWORD").orNull
+val validateReleaseConfiguration = tasks.register("validateReleaseConfiguration") {
+    doLast {
+        check(releaseKeystore.isFile) { "Release keystore not found. Set FREEDAR_KEYSTORE_PATH or create the Freedar release key." }
+        check(!releaseKeyPassword.isNullOrEmpty()) { "Set FREEDAR_KEY_PASSWORD before building a release." }
+        check(cartoKey.isNotBlank()) { "Set CARTO_API_KEY before building a release with live basemaps." }
+    }
+}
 android {
     namespace = "com.freedar"
     compileSdk = 35
@@ -21,6 +31,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "CARTO_API_KEY", "\"${cartoKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
+    signingConfigs {
+        create("release") {
+            storeFile = releaseKeystore
+            storePassword = releaseKeyPassword
+            keyAlias = "freedar"
+            keyPassword = releaseKeyPassword
+            storeType = "JKS"
+        }
+    }
+    buildTypes {
+        getByName("release") { signingConfig = signingConfigs.getByName("release") }
+    }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -29,6 +51,9 @@ android {
     kotlinOptions { jvmTarget = "17" }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     androidResources { noCompress += "gzip" }
+}
+tasks.matching { it.name == "preReleaseBuild" || it.name == "validateSigningRelease" }.configureEach {
+    dependsOn(validateReleaseConfiguration)
 }
 dependencies {
     implementation(project(":radar"))

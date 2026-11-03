@@ -65,6 +65,7 @@ fun SettingsSurface(settings: AppearanceSettings,
             Text("About Freedar", style = MaterialTheme.typography.titleMedium)
             Text("Version ${BuildConfig.VERSION_NAME}")
             SourceLink("GitHub project", "https://github.com/awstephan/freedar")
+            SourceLink("Freedar license · BSD 3-Clause", "https://github.com/awstephan/freedar/blob/HEAD/LICENSE")
             SourceLink("Radar: RainViewer", "https://www.rainviewer.com/")
             SourceLink("© OpenStreetMap contributors", "https://www.openstreetmap.org/copyright")
             SourceLink("© CARTO", "https://carto.com/attribution/")
