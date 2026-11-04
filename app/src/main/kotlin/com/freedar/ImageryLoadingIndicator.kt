@@ -21,10 +21,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlin.random.Random
 
 /** No input handlers or live region: map gestures pass through and frames aren't announced. */
 @Composable
 fun ImageryLoadingIndicator(dark: Boolean, modifier: Modifier = Modifier) {
+    val startingPhases = remember {
+        // One jittered start per quarter-cycle prevents a synchronized row.
+        List(4) { (it + .2f + Random.nextFloat() * .6f) / 4f }.shuffled()
+    }
     val resolver = LocalContext.current.contentResolver
     var animationsEnabled by remember { mutableStateOf(ValueAnimator.areAnimatorsEnabled()) }
     DisposableEffect(resolver) {
@@ -44,7 +49,8 @@ fun ImageryLoadingIndicator(dark: Boolean, modifier: Modifier = Modifier) {
     Canvas(modifier.size(48.dp).semantics { contentDescription = "Loading map imagery" }) {
         val color = if (dark) Color.White else Color.Black
         for (index in 0..3) {
-            val progress = (phase.value + index * .25f + .125f) % 1f
+            val progress = if (animationsEnabled) (phase.value + startingPhases[index]) % 1f
+                else index * .25f + .125f
             val alpha = if (animationsEnabled) minOf(progress / .18f, (1f - progress) / .18f, 1f) * .6f else .6f
             translate((11.25f + index * 8.5f).dp.toPx(), (8f + 24f * progress).dp.toPx()) {
                 val width = 5.5.dp.toPx()

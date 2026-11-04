@@ -22,6 +22,17 @@ Parent spec: [#11](https://github.com/awstephan/freedar/issues/11).
   stationary staggered drops; changes to the system setting are observed.
 - The accessible description is “Loading map imagery”, without a live region.
 
+### Owner-requested motion refinement
+
+After viewing the device test, the owner requested randomized starting phases.
+Each appearance now shuffles four independently jittered quarter-cycle phases,
+retaining a minimum phase separation so the drops stay staggered. The phases
+remain stable throughout that appearance; travel speed, horizontal spacing,
+900 ms cycle and fades stay the same. Reduced motion retains stationary drops
+at the original staggered heights. The motion crops below predate this refinement.
+Both `InitialLoadingRenderingTest` device tests passed again on the Pixel after
+this change, using the isolated validation package.
+
 ## Checks on 2026-11-03
 
 Confirmed test seams with the owner: radar controller, shared indicator state, and
