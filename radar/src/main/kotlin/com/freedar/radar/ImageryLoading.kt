@@ -24,6 +24,15 @@ class ImageryLoading(private val scope: CoroutineScope) {
     private val mutableVisible = MutableStateFlow(false)
     val visible = mutableVisible.asStateFlow()
 
+    suspend fun trackViewport(loading: StateFlow<Boolean>) {
+        loading.collectLatest { busy ->
+            if (busy) {
+                val operation = begin()
+                try { awaitCancellation() } finally { end(operation) }
+            }
+        }
+    }
+
     /** Collect for the foreground lifetime; replacements release the previous operation first. */
     suspend fun trackRadar(state: StateFlow<RadarState>) {
         state.map { if (it.initialImageryLoading) INITIAL_RADAR_PREPARATION else it.framePreparation }

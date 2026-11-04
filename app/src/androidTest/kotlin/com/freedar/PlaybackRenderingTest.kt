@@ -60,6 +60,7 @@ class PlaybackRenderingTest {
             }
             val finished = CountDownLatch(1)
             var failure: Throwable? = null
+            var stage = "initial playback"
             ActivityScenario.launch(MapTestActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
                     val map = RadarMap(activity)
@@ -95,6 +96,7 @@ class PlaybackRenderingTest {
                             assertEquals(frames.first(), app.state.value.frame)
                             println("Priority newest preparation additional requests=${requests.size - coldCount}")
                             val reachedGate = CompletableDeferred<Unit>()
+                            stage = "held presentation gate"
                             val releaseGate = CompletableDeferred<Unit>()
                             var preparing = true
                             val timedTransition = launch {
@@ -116,6 +118,45 @@ class PlaybackRenderingTest {
                             releaseGate.complete(Unit); timedTransition.join()
                             assertBlue(center(map))
                             app.select(frames.first())
+                            // Move on the first render after the presentation gate opens,
+                            // before the display acknowledges that frame. This exercises the
+                            // swap boundary rather than another move during preparation.
+                            var moveAfterGate = false
+                            stage = "presentation-boundary navigation"
+                            val movedDuringSwap = CompletableDeferred<Unit>()
+                            val swapNavigation = org.maplibre.android.maps.MapView.OnDidFinishRenderingFrameListener { _, _, _ ->
+                                if (moveAfterGate) {
+                                    moveAfterGate = false
+                                    map.nativeMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -80.0), 10.0))
+                                    movedDuringSwap.complete(Unit)
+                                }
+                            }
+                            map.view.addOnDidFinishRenderingFrameListener(swapNavigation)
+                            delayPriority.set(true)
+                            preparing = false
+                            val interruptedSwap = launch {
+                                map.showWhenReady(priorityFrame, { preparing = it }) { moveAfterGate = true }
+                            }
+                            try {
+                                withTimeout(10_000) { movedDuringSwap.await() }
+                                stage = "presentation-boundary loading"
+                                withTimeout(10_000) { while (!preparing) delay(20) }
+                                delay(250)
+                                assertTrue("Pan during presentation restores loading ownership", preparing)
+                                assertTrue("Presentation still waits for the new view", interruptedSwap.isActive)
+                                val retainedDuringSwap = center(map)
+                                stage = "presentation-boundary pixels"
+                                assertTrue("Pan during presentation restores preceding imagery",
+                                    Color.red(retainedDuringSwap) > Color.blue(retainedDuringSwap) + 50)
+                                interruptedSwap.join()
+                                assertBlue(center(map))
+                            } finally {
+                                map.view.removeOnDidFinishRenderingFrameListener(swapNavigation)
+                                delayPriority.set(false)
+                                interruptedSwap.cancel()
+                            }
+                            app.select(frames.first())
+                            stage = "stale selection"
                             val slow = launch { app.select(frames[1]) }
                             withTimeout(10_000) {
                                 while (requests.none { it.startsWith("/slow/") }) delay(20)
@@ -145,7 +186,7 @@ class PlaybackRenderingTest {
                     }
                 }
                 assertTrue("Playback fixture completed", finished.await(120, TimeUnit.SECONDS))
-                failure?.let { throw AssertionError("Playback rendering failed", it) }
+                failure?.let { throw AssertionError("Playback rendering failed ($stage)", it) }
             }
         }
     }

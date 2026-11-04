@@ -231,6 +231,7 @@ open class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { imageryLoading.trackRadar(radar.state) }
+                launch { imageryLoading.trackViewport(map.viewportLoading) }
                 launch { map.viewportCooldown.collect { radar.retryViewport() } }
                 refresh()
                 var elapsed = 0
@@ -382,6 +383,7 @@ open class MainActivity : ComponentActivity() {
             }
         }
         map.coverageForeground(true)
+        map.imageryForeground(true)
         returning = true
         connectivity.registerDefaultNetworkCallback(networkCallback)
         updateConnectivity()
@@ -400,6 +402,7 @@ open class MainActivity : ComponentActivity() {
         radar.background(); timelineJob?.cancel(); refreshJob?.cancel()
         basemapJob?.cancel()
         map.coverageForeground(false)
+        map.imageryForeground(false)
         connectivity.unregisterNetworkCallback(networkCallback)
         map.view.onStop(); super.onStop()
     }

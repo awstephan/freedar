@@ -50,7 +50,11 @@ class RadarMap(context: Context) : RadarDisplay {
     lateinit var nativeMap: MapLibreMap
         private set
     private lateinit var style: Style
-    private var initialBasemap: InitialBasemap? = null
+    private var viewportImagery: ViewportImagery? = null
+    private var viewportObserver: Job? = null
+    private var baseSources = emptySet<String>()
+    private val mutableViewportLoading = MutableStateFlow(false)
+    val viewportLoading = mutableViewportLoading.asStateFlow()
     private val mutableBasemapStatus = MutableStateFlow<String?>(null)
     val basemapStatus = mutableBasemapStatus.asStateFlow()
     private var visibleId: String? = null
@@ -110,13 +114,6 @@ class RadarMap(context: Context) : RadarDisplay {
 
     init {
         view.getMapAsync { it.addOnCameraMoveStartedListener(navigationListener) }
-        view.addOnTileActionListener { operation, _, _, _, _, _, source ->
-            if (source == visibleId && operation == TileOperation.Error) {
-                if (tileRequests.cooldownRemainingMillis > 0) {
-                    mutableViewportCooldown.tryEmit(Unit)
-                } else mutableStatus.value = "Some radar tiles are unavailable. Blank areas do not mean clear weather."
-            }
-        }
     }
 
     /** Static footprint only: transparent means potentially covered, never live health. */
@@ -131,13 +128,18 @@ class RadarMap(context: Context) : RadarDisplay {
     }
 
     fun coverageForeground(active: Boolean) { coverage?.foreground(active) }
+    fun imageryForeground(active: Boolean) { viewportImagery?.foreground(active) }
     fun stopCoverage() { coverage?.foreground(false); coverageObserver?.cancel() }
-    fun dispose() { stopCoverage(); initialBasemap?.close() }
+    fun dispose() {
+        stopCoverage()
+        viewportObserver?.cancel(); viewportImagery?.close()
+    }
 
     suspend fun loadStyle(url: String?, dark: Boolean = false) {
-        initialBasemap?.close()
+        viewportObserver?.cancel()
+        viewportImagery?.close()
+        mutableViewportLoading.value = false
         mutableBasemapStatus.value = null
-        initialBasemap = InitialBasemap(view, mutableBasemapStatus)
         nativeMap = suspendCancellableCoroutine { continuation ->
             view.getMapAsync { if (continuation.isActive) continuation.resume(it) }
         }
@@ -152,6 +154,21 @@ class RadarMap(context: Context) : RadarDisplay {
         nativeMap.removeOnCameraMoveStartedListener(navigationListener)
         nativeMap.addOnCameraMoveStartedListener(navigationListener)
         nativeMap.setMaxZoomPreference(18.0)
+        val imagery = ViewportImagery(view, nativeMap, timedOut = { id ->
+            if (id in baseSources) mutableBasemapStatus.value = "Base map imagery timed out."
+            else mutableStatus.value = "Radar viewport timed out."
+        }, onFailure = { id ->
+            if (id in baseSources) mutableBasemapStatus.value = "Base map imagery unavailable."
+            else if (tileRequests.cooldownRemainingMillis > 0) mutableViewportCooldown.tryEmit(Unit)
+            else mutableStatus.value = "Some radar tiles are unavailable. Blank areas do not mean clear weather."
+        }, onReady = { id ->
+            if (id in baseSources && baseSources.all { viewportImagery?.ready(it) == true }) mutableBasemapStatus.value = null
+            if (id == visibleId) mutableStatus.value = null
+        })
+        viewportImagery = imagery
+        viewportObserver = CoroutineScope(Dispatchers.Main.immediate).launch {
+            imagery.loading.collect { mutableViewportLoading.value = it }
+        }
         val loaded = CompletableDeferred<Style>()
         val failure = MapView.OnDidFailLoadingMapListener {
             loaded.completeExceptionally(IOException("Base map unavailable"))
@@ -162,7 +179,16 @@ class RadarMap(context: Context) : RadarDisplay {
                 if (dark) EMPTY_STYLE.replace("#e9eeec", "#333333") else EMPTY_STYLE
             ) else Style.Builder().fromUri(url)
             nativeMap.setStyle(builder) {
-                initialBasemap?.styleLoaded(it)
+                val sourceJson = org.json.JSONObject(it.json).getJSONObject("sources")
+                baseSources = it.sources.filter { source ->
+                    source is RasterSource || source is org.maplibre.android.style.sources.VectorSource
+                }.map { source -> source.id }.toSet()
+                baseSources.forEach { id ->
+                    val config = sourceJson.getJSONObject(id)
+                    imagery.add(id, config.optInt("maxzoom", 22),
+                        if (config.optString("type") == "raster") config.optInt("tileSize", 512) else null)
+                }
+                imagery.contribute(baseSources)
                 loaded.complete(it)
             }
             style = withTimeoutOrNull(30_000) { loaded.await() } ?: throw IOException("Base map timed out")
@@ -195,7 +221,11 @@ class RadarMap(context: Context) : RadarDisplay {
     /** Initial base imagery only; radar and coverage can load concurrently. */
     suspend fun awaitInitialBasemap() {
         nativeMap.triggerRepaint()
-        requireNotNull(initialBasemap).awaitReady()
+        val ready = withTimeoutOrNull(30_000) { requireNotNull(viewportImagery).awaitReady(baseSources); true }
+        if (ready == null) {
+            mutableBasemapStatus.value = "Base map imagery timed out."
+            throw IOException("Base map imagery timed out.")
+        }
     }
 
     /** Zoom 9 frames a local region; ground span depends on latitude and viewport. */
@@ -232,34 +262,41 @@ class RadarMap(context: Context) : RadarDisplay {
         val ready = CompletableDeferred<Unit>()
         val presented = CompletableDeferred<Unit>()
         var presenting = false
-        var parsed = false
+        var candidateExposed = false
         var tileFailure: IOException? = null
         var viewport = 0L
         var readyViewport = -1L
         var viewportReady: CompletableDeferred<Unit>? = null
-        data class Tile(val x: Int, val y: Int, val z: Int, val wrap: Int, val overscaledZ: Int)
-        val pendingTiles = mutableSetOf<Tile>()
-        val parsedTiles = mutableSetOf<Tile>()
-        val moved = MapLibreMap.OnCameraMoveListener { viewport++ }
-        val tiles = MapView.OnTileActionListener { operation, x, y, z, wrap, overscaledZ, source ->
+        fun exposeCandidate() {
+            style.removeLayer(id)
+            val layer = radarLayer(id)
+            val reference = style.radarReferenceLayer()
+            if (reference == null) style.addLayer(layer) else style.addLayerBelow(layer, reference)
+            visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(0f)) }
+            presentingId = id
+            candidateExposed = true
+        }
+        val moved = MapLibreMap.OnCameraMoveListener {
+            viewport++
+            if (presenting && candidateExposed) {
+                style.removeLayer(id)
+                style.addLayerBelow(radarLayer(id), style.layers.first().id)
+                visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(opacity)) }
+                presentingId = null
+                candidateExposed = false
+            }
+        }
+        val tiles = MapView.OnTileActionListener { operation, _, _, _, _, _, source ->
             if (source == id) {
-                val tile = Tile(x, y, z, wrap, overscaledZ)
                 when (operation) {
                     // Native also probes cached fallback ancestors without ever loading them;
                     // those lookups have no matching completion/cancellation event.
                     TileOperation.RequestedFromNetwork, TileOperation.StartParse -> {
-                        if (tile !in parsedTiles) {
-                            pendingTiles.add(tile)
-                            if (!prepareOnly && !presenting && tileFailure == null) preparationChanged(true)
+                        if (viewportImagery?.ready(id) != true) {
+                            if (!prepareOnly && tileFailure == null) preparationChanged(true)
                         }
                     }
-                    TileOperation.EndParse -> {
-                        parsed = true
-                        pendingTiles.remove(tile)
-                        parsedTiles.add(tile)
-                    }
-                    TileOperation.Cancelled -> pendingTiles.remove(tile)
-                    TileOperation.Error -> {
+                    TileOperation.Error -> if (viewportImagery?.failed(id) == true) {
                         val remaining = tileRequests.cooldownRemainingMillis
                         val error = if (remaining > 0) RadarCoolingDown(remaining) else IOException("Radar tiles unavailable")
                         tileFailure = error
@@ -272,14 +309,17 @@ class RadarMap(context: Context) : RadarDisplay {
                 }
             }
         }
-        val rendered = MapView.OnDidFinishRenderingFrameListener { fully, _, _ ->
+        val rendered = MapView.OnDidFinishRenderingFrameListener { _, _, _ ->
             // Candidate-source readiness is independent of unrelated basemap/coverage work,
             // including new candidate tiles requested while the presentation gate is waiting.
-            if (parsed && pendingTiles.isEmpty() && tileFailure == null) preparationChanged(false)
-            if (fully && parsed) {
+            val currentReady = viewportImagery?.ready(id) == true && tileFailure == null
+            if (!prepareOnly && tileFailure == null) preparationChanged(!currentReady)
+            if (currentReady) {
                 readyViewport = viewport
                 viewportReady?.complete(Unit)
-                if (presenting) presented.complete(Unit) else ready.complete(Unit)
+                if (presenting) {
+                    if (candidateExposed) presented.complete(Unit) else exposeCandidate()
+                } else ready.complete(Unit)
             }
         }
         view.addOnTileActionListener(tiles)
@@ -291,6 +331,7 @@ class RadarMap(context: Context) : RadarDisplay {
                 minZoom = 0f
                 maxZoom = 7f
             }
+            viewportImagery?.add(id, maxZoom = 7, tileSize = 256)
             style.addSource(RasterSource(id, tileSet, 256))
             // Load underneath the opaque base-map background, never blended into the
             // displayed radar. Both our fallback and CARTO Positron have that background.
@@ -309,16 +350,12 @@ class RadarMap(context: Context) : RadarDisplay {
             }
             tileFailure?.let { throw it }
             preparationChanged(false)
-            style.removeLayer(id)
-            val layer = radarLayer(id)
-            val reference = style.radarReferenceLayer()
-            if (reference == null) style.addLayer(layer) else style.addLayerBelow(layer, reference)
-            visibleId?.let { style.getLayer(it)?.setProperties(rasterOpacity(0f)) }
-            presentingId = id
+            exposeCandidate()
             presenting = true
             withTimeoutOrNull(30_000) { presented.await() } ?: throw IOException("Radar presentation timed out")
             visibleId?.let { removeFrame(it) }
             visibleId = id
+            viewportImagery?.contribute(baseSources + id)
             mutableStatus.value = null
             committed = true
         } finally {
@@ -339,6 +376,7 @@ class RadarMap(context: Context) : RadarDisplay {
         .apply { rasterOpacityTransition = TransitionOptions(0, 0) }
 
     private fun removeFrame(id: String) {
+        viewportImagery?.remove(id)
         if (view.isDestroyed) return
         style.removeLayer(id)
         style.removeSource(id)

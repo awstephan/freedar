@@ -2,11 +2,38 @@ package com.freedar.radar
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import org.junit.Assert.*
 import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ImageryLoadingTest {
+    @Test fun `viewport readiness releases only viewport work and background cancellation releases ownership`() = runTest {
+        val indicator = ImageryLoading(backgroundScope)
+        val viewport = MutableStateFlow(false)
+        val tracking = backgroundScope.launch { indicator.trackViewport(viewport) }
+        runCurrent()
+        viewport.value = true
+        runCurrent()
+        testScheduler.advanceTimeBy(200)
+        runCurrent()
+        assertTrue(indicator.visible.value)
+        val frame = indicator.begin()
+        viewport.value = false
+        runCurrent()
+        assertTrue(indicator.visible.value)
+        indicator.end(frame)
+        assertFalse(indicator.visible.value)
+        viewport.value = true
+        runCurrent()
+        testScheduler.advanceTimeBy(200)
+        runCurrent()
+        tracking.cancel()
+        runCurrent()
+        assertFalse(indicator.visible.value)
+    }
+
     @Test fun `fast loads never flash and stale endings cannot dismiss replacement work`() = runTest {
         val indicator = ImageryLoading(backgroundScope)
         val old = indicator.begin()
