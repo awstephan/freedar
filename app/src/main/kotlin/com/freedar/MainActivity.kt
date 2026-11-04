@@ -53,10 +53,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
 open class MainActivity : ComponentActivity() {
     private var permissionResult: ((Boolean) -> Unit)? = null
@@ -234,14 +230,7 @@ open class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch {
-                    radar.state.map { it.initialImageryLoading }.distinctUntilChanged().collectLatest { loading ->
-                        if (loading) {
-                            val operation = imageryLoading.begin()
-                            try { awaitCancellation() } finally { imageryLoading.end(operation) }
-                        }
-                    }
-                }
+                launch { imageryLoading.trackRadar(radar.state) }
                 launch { map.viewportCooldown.collect { radar.retryViewport() } }
                 refresh()
                 var elapsed = 0

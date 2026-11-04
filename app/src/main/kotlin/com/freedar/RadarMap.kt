@@ -217,15 +217,17 @@ class RadarMap(context: Context) : RadarDisplay {
         load(frame, prepareOnly = false) {}
     }
 
-    override suspend fun showWhenReady(frame: RadarFrame, awaitPresentationTime: suspend () -> Unit) {
-        load(frame, prepareOnly = false, awaitPresentationTime)
+    override suspend fun showWhenReady(frame: RadarFrame, preparationChanged: (Boolean) -> Unit,
+        awaitPresentationTime: suspend () -> Unit) {
+        load(frame, prepareOnly = false, preparationChanged, awaitPresentationTime)
     }
 
     override suspend fun prepare(frame: RadarFrame) {
         load(frame, prepareOnly = true) {}
     }
 
-    private suspend fun load(frame: RadarFrame, prepareOnly: Boolean, awaitPresentationTime: suspend () -> Unit) {
+    private suspend fun load(frame: RadarFrame, prepareOnly: Boolean,
+        preparationChanged: (Boolean) -> Unit = {}, awaitPresentationTime: suspend () -> Unit) {
         val id = "radar-${++sequence}"
         val ready = CompletableDeferred<Unit>()
         val presented = CompletableDeferred<Unit>()
@@ -235,22 +237,43 @@ class RadarMap(context: Context) : RadarDisplay {
         var viewport = 0L
         var readyViewport = -1L
         var viewportReady: CompletableDeferred<Unit>? = null
+        data class Tile(val x: Int, val y: Int, val z: Int, val wrap: Int, val overscaledZ: Int)
+        val pendingTiles = mutableSetOf<Tile>()
+        val parsedTiles = mutableSetOf<Tile>()
         val moved = MapLibreMap.OnCameraMoveListener { viewport++ }
-        val tiles = MapView.OnTileActionListener { operation, _, _, _, _, _, source ->
-            if (source == id) when (operation) {
-                TileOperation.EndParse -> parsed = true
-                TileOperation.Error -> {
-                    val remaining = tileRequests.cooldownRemainingMillis
-                    val error = if (remaining > 0) RadarCoolingDown(remaining) else IOException("Radar tiles unavailable")
-                    tileFailure = error
-                    ready.completeExceptionally(error)
-                    presented.completeExceptionally(error)
-                    viewportReady?.completeExceptionally(error)
+        val tiles = MapView.OnTileActionListener { operation, x, y, z, wrap, overscaledZ, source ->
+            if (source == id) {
+                val tile = Tile(x, y, z, wrap, overscaledZ)
+                when (operation) {
+                    TileOperation.RequestedFromCache, TileOperation.RequestedFromNetwork, TileOperation.StartParse -> {
+                        if (tile !in parsedTiles) {
+                            pendingTiles.add(tile)
+                            if (!prepareOnly && !presenting && tileFailure == null) preparationChanged(true)
+                        }
+                    }
+                    TileOperation.EndParse -> {
+                        parsed = true
+                        pendingTiles.remove(tile)
+                        parsedTiles.add(tile)
+                    }
+                    TileOperation.Cancelled -> pendingTiles.remove(tile)
+                    TileOperation.Error -> {
+                        val remaining = tileRequests.cooldownRemainingMillis
+                        val error = if (remaining > 0) RadarCoolingDown(remaining) else IOException("Radar tiles unavailable")
+                        tileFailure = error
+                        preparationChanged(false)
+                        ready.completeExceptionally(error)
+                        presented.completeExceptionally(error)
+                        viewportReady?.completeExceptionally(error)
+                    }
+                    else -> Unit
                 }
-                else -> Unit
             }
         }
         val rendered = MapView.OnDidFinishRenderingFrameListener { fully, _, _ ->
+            // Candidate-source readiness is independent of unrelated basemap/coverage work,
+            // including new candidate tiles requested while the presentation gate is waiting.
+            if (parsed && pendingTiles.isEmpty() && tileFailure == null) preparationChanged(false)
             if (fully && parsed) {
                 readyViewport = viewport
                 viewportReady?.complete(Unit)
@@ -273,6 +296,7 @@ class RadarMap(context: Context) : RadarDisplay {
             style.addLayerBelow(loadingLayer, style.layers.first().id)
             withTimeoutOrNull(30_000) { ready.await() } ?: throw IOException("Radar tiles timed out")
             if (prepareOnly) return // finally removes native resources; HTTP bytes remain in session memory.
+            preparationChanged(false)
             awaitPresentationTime()
             tileFailure?.let { throw it }
             while (readyViewport != viewport) {
@@ -282,6 +306,7 @@ class RadarMap(context: Context) : RadarDisplay {
                     ?: throw IOException("Radar viewport timed out")
             }
             tileFailure?.let { throw it }
+            preparationChanged(false)
             style.removeLayer(id)
             val layer = radarLayer(id)
             val reference = style.radarReferenceLayer()
@@ -295,6 +320,7 @@ class RadarMap(context: Context) : RadarDisplay {
             mutableStatus.value = null
             committed = true
         } finally {
+            preparationChanged(false)
             presentingId = null
             view.removeOnTileActionListener(tiles)
             view.removeOnDidFinishRenderingFrameListener(rendered)

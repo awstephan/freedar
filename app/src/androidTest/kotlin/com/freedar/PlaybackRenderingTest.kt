@@ -37,6 +37,7 @@ import org.maplibre.android.geometry.LatLng
 class PlaybackRenderingTest {
     @Test fun coldAndWarmTransitionsRetainFrameTimeDuringScrubbingAndPan() {
         val requests = CopyOnWriteArrayList<String>()
+        val delayPriority = java.util.concurrent.atomic.AtomicBoolean(false)
         val blue = png(Color.BLUE)
         val red = png(Color.RED)
         MockWebServer().use { server ->
@@ -46,7 +47,10 @@ class PlaybackRenderingTest {
                     requests += path
                     return MockResponse().setHeader("Content-Type", "image/png")
                         .setBody(Buffer().write(if (path.startsWith("/old/")) red else blue))
-                        .apply { if (path.startsWith("/slow/")) setBodyDelay(2, TimeUnit.SECONDS) }
+                        .apply {
+                            if (path.startsWith("/slow/") || (delayPriority.get() && path.startsWith("/priority/")))
+                                setBodyDelay(2, TimeUnit.SECONDS)
+                        }
                 }
             }
             server.start()
@@ -92,11 +96,23 @@ class PlaybackRenderingTest {
                             println("Priority newest preparation additional requests=${requests.size - coldCount}")
                             val reachedGate = CompletableDeferred<Unit>()
                             val releaseGate = CompletableDeferred<Unit>()
+                            var preparing = true
                             val timedTransition = launch {
-                                map.showWhenReady(priorityFrame) { reachedGate.complete(Unit); releaseGate.await() }
+                                map.showWhenReady(priorityFrame, { preparing = it }) {
+                                    reachedGate.complete(Unit); releaseGate.await()
+                                }
                             }
                             reachedGate.await()
+                            assertFalse("Ready cached imagery does not indicate scheduled presentation", preparing)
                             assertEquals("Loaded candidate stays hidden until its presentation deadline", oldPixel, center(map))
+                            delayPriority.set(true)
+                            map.nativeMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -90.0), 10.0))
+                            withTimeout(10_000) { while (!preparing) delay(20) }
+                            delay(250)
+                            assertTrue("New candidate tiles are loading before the gate opens", preparing)
+                            withTimeout(20_000) { while (preparing) delay(20) }
+                            assertFalse("Current candidate readiness ends preparation even with the gate held", releaseGate.isCompleted)
+                            delayPriority.set(false)
                             releaseGate.complete(Unit); timedTransition.join()
                             assertBlue(center(map))
                             app.select(frames.first())
@@ -105,6 +121,7 @@ class PlaybackRenderingTest {
                                 while (requests.none { it.startsWith("/slow/") }) delay(20)
                             }
                             assertEquals("Timestamp retains displayed red while loading", frames.first(), app.state.value.frame)
+                            assertNotNull("Slow native preparation is eligible", app.state.value.framePreparation)
                             val retained = center(map)
                             assertTrue("No blank flash during pending replacement", Color.red(retained) > Color.blue(retained) + 50)
                             map.nativeMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(41.0, -96.1), 11.0))
@@ -112,6 +129,7 @@ class PlaybackRenderingTest {
                             slow.join()
                             delay(2200) // The cancelled slow response must not overwrite the newer selection.
                             assertEquals(frames.last(), app.state.value.frame)
+                            assertNull("Late canceled response cannot prolong feedback", app.state.value.framePreparation)
                             assertEquals(TimelineMode.SELECTED, app.state.value.mode)
                             assertBlue(center(map))
                             assertEquals(11.0, map.nativeMap.cameraPosition.zoom, 0.01)

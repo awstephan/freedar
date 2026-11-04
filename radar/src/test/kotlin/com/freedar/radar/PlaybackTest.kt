@@ -219,8 +219,10 @@ class PlaybackTest {
         val presentedAt = mutableListOf<Long>()
         val app = LatestRadar(provider(), Clock.systemUTC(), object : RadarDisplay {
             override suspend fun show(frame: RadarFrame) { presentedAt += testScheduler.currentTime }
-            override suspend fun showWhenReady(frame: RadarFrame, awaitPresentationTime: suspend () -> Unit) {
+            override suspend fun showWhenReady(frame: RadarFrame, preparationChanged: (Boolean) -> Unit,
+                awaitPresentationTime: suspend () -> Unit) {
                 delay(if (frame == frames.last()) 400 else 200)
+                preparationChanged(false)
                 awaitPresentationTime()
                 show(frame)
             }

@@ -27,10 +27,16 @@ fun interface RadarProvider {
 /** Completes after presentation; failure/cancellation must retain the preceding frame. */
 fun interface RadarDisplay {
     suspend fun show(frame: RadarFrame)
-    /** Native renderers load invisibly, await this gate, then expose the ready frame. */
-    suspend fun showWhenReady(frame: RadarFrame, awaitPresentationTime: suspend () -> Unit) {
+    /** Native renderers load invisibly, report preparation ending, then await the presentation gate.
+     * Report preparation restarting if imagery needs more work after that gate (for example a pan).
+     * The default renderer waits for the gate before starting its indivisible show operation.
+     */
+    suspend fun showWhenReady(frame: RadarFrame, preparationChanged: (Boolean) -> Unit = {},
+        awaitPresentationTime: suspend () -> Unit) {
+        preparationChanged(false)
         awaitPresentationTime()
-        show(frame)
+        preparationChanged(true)
+        try { show(frame) } finally { preparationChanged(false) }
     }
     /** Load newest into in-session memory without replacing displayed imagery. */
     suspend fun prepare(frame: RadarFrame) {}
@@ -51,6 +57,8 @@ data class RadarState(
     val loading: Boolean = false,
     /** Work needed for the first usable image; excludes refreshes with retained imagery. */
     val initialImageryLoading: Boolean = false,
+    /** Identity of the current user-facing frame preparation, excluding scheduling and refresh. */
+    val framePreparation: Long? = null,
     val refreshError: String? = null,
     val imageError: String? = null,
     val cooldownSeconds: Long = 0,
@@ -91,6 +99,7 @@ class LatestRadar(
     private var fetching = false
     private var fetchingDescriptor = false
     private var preparingImage = false
+    private var indicatePreparation = false
     private var awaySince: Long? = restoredAwaySince
     private var resumeMode = restoredMode
     private var retryOnForeground = false
@@ -125,13 +134,17 @@ class LatestRadar(
 
     private fun updateLoading() {
         mutableState.value = state.value.copy(loading = fetching || presentation != null,
+            framePreparation = revision.takeIf { awaySince == null && preparingImage && indicatePreparation },
             initialImageryLoading = awaySince == null && state.value.frame == null && (fetchingDescriptor || preparingImage))
     }
 
     private suspend fun present(frame: RadarFrame, prepareOnly: Boolean = false,
-        notBefore: Long? = null): Boolean = coroutineScope {
+        notBefore: Long? = null, indicate: Boolean = true): Boolean = coroutineScope {
         val request = ++revision
         presentation?.cancel()
+        preparingImage = false
+        indicatePreparation = indicate && !prepareOnly
+        updateLoading()
         val task = async {
             displayLock.withLock {
                 ensureActive()
@@ -142,7 +155,12 @@ class LatestRadar(
                     try {
                         preparingImage = !prepareOnly
                         updateLoading()
-                        if (prepareOnly) display.prepare(frame) else display.showWhenReady(frame) {
+                        if (prepareOnly) display.prepare(frame) else display.showWhenReady(frame, { preparing ->
+                            if (request == revision) {
+                                preparingImage = preparing
+                                updateLoading()
+                            }
+                        }) {
                             if (notBefore != null) delay((notBefore - monotonicMillis()).coerceAtLeast(0))
                         }
                         break
@@ -253,11 +271,11 @@ class LatestRadar(
         present(target)
     }
 
-    private suspend fun showLatest() {
+    private suspend fun showLatest(indicate: Boolean = true) {
         val frames = state.value.frames
         if (state.value.retainedHistory) {
-            for (frame in frames.asReversed()) if (present(frame)) break
-        } else frames.lastOrNull()?.let { present(it) }
+            for (frame in frames.asReversed()) if (present(frame, indicate = indicate)) break
+        } else frames.lastOrNull()?.let { present(it, indicate = indicate) }
     }
 
     suspend fun refresh(retryDisplayed: Boolean = false) {
@@ -289,7 +307,7 @@ class LatestRadar(
             fetchingDescriptor = false
             updateLoading()
             if (state.value.mode == TimelineMode.FOLLOWING) {
-                showLatest()
+                showLatest(indicate = retryDisplayed)
             } else if (state.value.frame == null && state.value.selection != null) {
                 present(requireNotNull(state.value.selection))
             } else if (retrySelection != null) {

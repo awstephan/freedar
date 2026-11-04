@@ -76,6 +76,7 @@ class RadarCooldownRenderingTest {
                             withTimeout(30_000) {
                                 val selecting = launch { radar.select(cold) }
                                 radar.state.first { it.cooldownSeconds > 0 }
+                                assertNull("Cooldown uses countdown rather than loading", radar.state.value.framePreparation)
                                 assertEquals(warm, radar.state.value.frame)
                                 assertTrue(radar.state.value.unavailable.isEmpty())
                                 assertNull(radar.state.value.imageError)
@@ -85,6 +86,7 @@ class RadarCooldownRenderingTest {
                             assertTrue(throttled.get())
                             assertEquals(cold, radar.state.value.frame)
                             assertEquals(0L, radar.state.value.cooldownSeconds)
+                            assertNull(radar.state.value.framePreparation)
                             assertTrue(radar.state.value.unavailable.isEmpty())
                             stage = "checking recovered image"
                             assertImage(map, blue = true)

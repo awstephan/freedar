@@ -18,7 +18,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class InitialBasemapRenderingTest {
-    @Test fun basemapWaitsForItsTilesButNotConcurrentRadarLoading() = withFreshMapRequestBudget {
+    @Test fun basemapWaitsForItsTilesButNotConcurrentRadarLoading() = independentReadiness(radarFirst = false)
+
+    @Test fun readyRadarPreparationDoesNotWaitForUnrelatedBasemapTiles() = independentReadiness(radarFirst = true)
+
+    private fun independentReadiness(radarFirst: Boolean) = withFreshMapRequestBudget {
         val png = ByteArrayOutputStream().apply output@{
             Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888).apply {
                 eraseColor(Color.GREEN)
@@ -31,6 +35,7 @@ class InitialBasemapRenderingTest {
         val radarRequested = CountDownLatch(1)
         val releaseRadar = CountDownLatch(1)
         val radarReady = CountDownLatch(1)
+        val radarPrepared = CountDownLatch(1)
         val styleLoaded = CountDownLatch(1)
         val imageryReady = CountDownLatch(1)
         var failure: Throwable? = null
@@ -66,8 +71,9 @@ class InitialBasemapRenderingTest {
                             styleLoaded.countDown()
                             launch {
                                 try {
-                                    map.show(com.freedar.radar.RadarFrame(java.time.Instant.ofEpochSecond(1700000000),
-                                        "http://127.0.0.1:${server.port}/radar/{z}/{x}/{y}.png"))
+                                    map.showWhenReady(com.freedar.radar.RadarFrame(java.time.Instant.ofEpochSecond(1700000000),
+                                        "http://127.0.0.1:${server.port}/radar/{z}/{x}/{y}.png"),
+                                        { if (!it) radarPrepared.countDown() }) {}
                                 } catch (error: Throwable) { failure = error }
                                 finally { radarReady.countDown() }
                             }
@@ -82,9 +88,14 @@ class InitialBasemapRenderingTest {
                     assertTrue(tileRequested.await(30, TimeUnit.SECONDS))
                     assertTrue("Radar starts while basemap is pending", radarRequested.await(30, TimeUnit.SECONDS))
                     assertFalse("Style readiness must not stand in for imagery", imageryReady.await(300, TimeUnit.MILLISECONDS))
+                    if (radarFirst) {
+                        releaseRadar.countDown()
+                        assertTrue("Radar preparation ends independently of basemap rendering", radarPrepared.await(10, TimeUnit.SECONDS))
+                        assertEquals(1L, imageryReady.count)
+                    }
                     releaseTiles.countDown()
                     assertTrue(imageryReady.await(30, TimeUnit.SECONDS))
-                    assertEquals("Radar remains pending after basemap readiness", 1L, radarReady.count)
+                    if (!radarFirst) assertEquals("Radar remains pending after basemap readiness", 1L, radarReady.count)
                     failure?.let { throw AssertionError("Initial imagery failed", it) }
                     releaseRadar.countDown()
                     assertTrue(radarReady.await(30, TimeUnit.SECONDS))
