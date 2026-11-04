@@ -5,6 +5,11 @@ import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
@@ -31,18 +36,15 @@ fun ImageryLoadingIndicator(dark: Boolean, modifier: Modifier = Modifier) {
         resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
         onDispose { resolver.unregisterContentObserver(observer) }
     }
-    var phase by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(animationsEnabled) {
-        phase = 0f
-        if (animationsEnabled) {
-            val start = withFrameMillis { it }
-            while (true) withFrameMillis { phase = ((it - start) % 900) / 900f }
-        }
-    }
+    val phase = if (animationsEnabled) {
+        rememberInfiniteTransition(label = "Falling drops").animateFloat(
+            initialValue = 0f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)), label = "Drop phase")
+    } else remember { mutableFloatStateOf(0f) }
     Canvas(modifier.size(48.dp).semantics { contentDescription = "Loading map imagery" }) {
         val color = if (dark) Color.White else Color.Black
         for (index in 0..3) {
-            val progress = (phase + index * .25f + .125f) % 1f
+            val progress = (phase.value + index * .25f + .125f) % 1f
             val alpha = if (animationsEnabled) minOf(progress / .18f, (1f - progress) / .18f, 1f) * .6f else .6f
             translate((11.25f + index * 8.5f).dp.toPx(), (8f + 24f * progress).dp.toPx()) {
                 val width = 5.5.dp.toPx()

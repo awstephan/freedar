@@ -52,15 +52,17 @@ class InitialBasemapRenderingTest {
                     return MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(png))
                 }
             }
+            val styleUrl = server.url("/style.json").toString()
             ActivityScenario.launch(MapTestActivity::class.java).use { scenario ->
                 lateinit var map: RadarMap
                 scenario.onActivity { activity ->
                     map = RadarMap(activity)
+                    map.view.onCreate(null)
                     activity.setContentView(map.view)
-                    map.view.onCreate(null); map.view.onStart(); map.view.onResume()
+                    map.view.onStart(); map.view.onResume()
                     CoroutineScope(Dispatchers.Main).launch {
                         try {
-                            map.loadStyle(server.url("/style.json").toString())
+                            map.loadStyle(styleUrl)
                             styleLoaded.countDown()
                             launch {
                                 try {
@@ -71,11 +73,12 @@ class InitialBasemapRenderingTest {
                             }
                             map.awaitInitialBasemap()
                         } catch (error: Throwable) { failure = error }
-                        finally { imageryReady.countDown() }
+                        finally { styleLoaded.countDown(); imageryReady.countDown() }
                     }
                 }
                 try {
-                    assertTrue(styleLoaded.await(30, TimeUnit.SECONDS))
+                    assertTrue("Style load completed", styleLoaded.await(35, TimeUnit.SECONDS))
+                    failure?.let { throw AssertionError("Style failed", it) }
                     assertTrue(tileRequested.await(30, TimeUnit.SECONDS))
                     assertTrue("Radar starts while basemap is pending", radarRequested.await(30, TimeUnit.SECONDS))
                     assertFalse("Style readiness must not stand in for imagery", imageryReady.await(300, TimeUnit.MILLISECONDS))
