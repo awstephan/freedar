@@ -25,7 +25,7 @@ import org.maplibre.android.maps.MapView
 class FrameLoadingRenderingTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Test fun selectionAndPlaybackKeepImageAndTimeUntilDelayedFrameIsReady() {
+    @Test fun selectionAndPlaybackKeepImageAndTimeUntilDelayedFrameIsReady() = withLocalView {
         for (playback in listOf(false, true)) {
             val release = CountDownLatch(1)
             val requested = CountDownLatch(1)
@@ -86,6 +86,20 @@ class FrameLoadingRenderingTest {
                     }
                 } finally { release.countDown() }
             }
+        }
+    }
+
+    private fun withLocalView(test: () -> Unit) {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val view = RememberedView(context)
+        val previous = view.read()
+        // Bound the tile count so request pacing fits the fixture's readiness deadline,
+        // regardless of the camera left by preceding navigation/theme tests.
+        view.save(org.maplibre.android.camera.CameraPosition.Builder()
+            .target(org.maplibre.android.geometry.LatLng(40.0, -100.0)).zoom(10.0).build())
+        try { test() } finally {
+            if (previous != null) view.save(previous)
+            else context.getSharedPreferences("remembered-view", 0).edit().clear().commit()
         }
     }
 

@@ -245,7 +245,9 @@ class RadarMap(context: Context) : RadarDisplay {
             if (source == id) {
                 val tile = Tile(x, y, z, wrap, overscaledZ)
                 when (operation) {
-                    TileOperation.RequestedFromCache, TileOperation.RequestedFromNetwork, TileOperation.StartParse -> {
+                    // Native also probes cached fallback ancestors without ever loading them;
+                    // those lookups have no matching completion/cancellation event.
+                    TileOperation.RequestedFromNetwork, TileOperation.StartParse -> {
                         if (tile !in parsedTiles) {
                             pendingTiles.add(tile)
                             if (!prepareOnly && !presenting && tileFailure == null) preparationChanged(true)
