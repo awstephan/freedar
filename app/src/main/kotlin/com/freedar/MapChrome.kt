@@ -31,6 +31,9 @@ fun MapChrome(
     selectPlace: ((Place) -> Unit)? = null,
     appearance: AppearanceSettings,
     changeTheme: (MapTheme) -> Unit,
+    imageryLoading: Boolean = false,
+    foreground: Boolean = true,
+    dark: Boolean = false,
 ) {
     var panel by rememberSaveable { mutableStateOf<MapPanel?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -45,6 +48,9 @@ fun MapChrome(
             contentDescription = "Weather map"
             traversalIndex = 0f
         }) { map() }
+        if (imageryLoading && foreground && panel == null) {
+            ImageryLoadingIndicator(dark, Modifier.align(Alignment.Center))
+        }
         Box(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(8.dp)) {
             MapIconButton(MapIcon.ATTRIBUTIONS, "Attributions", onClick = { toggle(MapPanel.ATTRIBUTIONS) },
                 modifier = Modifier.align(Alignment.TopStart).zIndex(1f), expanded = panel == MapPanel.ATTRIBUTIONS)

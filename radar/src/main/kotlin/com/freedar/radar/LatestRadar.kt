@@ -49,6 +49,8 @@ data class RadarState(
     /** Last successfully presented image. Only this frame may label the visible imagery. */
     val frame: RadarFrame? = null,
     val loading: Boolean = false,
+    /** Work needed for the first usable image; excludes refreshes with retained imagery. */
+    val initialImageryLoading: Boolean = false,
     val refreshError: String? = null,
     val imageError: String? = null,
     val cooldownSeconds: Long = 0,
@@ -87,6 +89,8 @@ class LatestRadar(
     private val displayLock = Mutex()
     private var revision = 0L
     private var fetching = false
+    private var fetchingDescriptor = false
+    private var preparingImage = false
     private var awaySince: Long? = restoredAwaySince
     private var resumeMode = restoredMode
     private var retryOnForeground = false
@@ -101,6 +105,7 @@ class LatestRadar(
         retryOnForeground = presentation != null
         pause()
         presentation?.cancel()
+        updateLoading()
     }
 
     /** Refresh on every return; the caller starts playback only after this completes. */
@@ -119,7 +124,8 @@ class LatestRadar(
     }
 
     private fun updateLoading() {
-        mutableState.value = state.value.copy(loading = fetching || presentation != null)
+        mutableState.value = state.value.copy(loading = fetching || presentation != null,
+            initialImageryLoading = awaySince == null && state.value.frame == null && (fetchingDescriptor || preparingImage))
     }
 
     private suspend fun present(frame: RadarFrame, prepareOnly: Boolean = false,
@@ -134,6 +140,8 @@ class LatestRadar(
                     selection = if (prepareOnly || state.value.mode == TimelineMode.PLAYING) state.value.selection else frame)
                 while (true) {
                     try {
+                        preparingImage = !prepareOnly
+                        updateLoading()
                         if (prepareOnly) display.prepare(frame) else display.showWhenReady(frame) {
                             if (notBefore != null) delay((notBefore - monotonicMillis()).coerceAtLeast(0))
                         }
@@ -141,6 +149,8 @@ class LatestRadar(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (cooldown: RadarCoolingDown) {
+                        preparingImage = false
+                        updateLoading()
                         val until = monotonicMillis() + cooldown.retryAfterMillis.coerceAtLeast(1000)
                         while (monotonicMillis() < until) {
                             val remaining = until - monotonicMillis()
@@ -178,6 +188,7 @@ class LatestRadar(
         } finally {
             if (request == revision) {
                 presentation = null
+                preparingImage = false
                 mutableState.value = state.value.copy(cooldownSeconds = 0)
                 updateLoading()
             }
@@ -252,6 +263,7 @@ class LatestRadar(
     suspend fun refresh(retryDisplayed: Boolean = false) {
         if (!refreshLock.tryLock()) return
         fetching = true
+        fetchingDescriptor = true
         updateLoading()
         try {
             var retained = false
@@ -274,6 +286,8 @@ class LatestRadar(
                 refreshError = if (retained) "Radar refresh failed. Showing saved radar, not live data." else null,
                 unavailable = emptySet())
             updateAge()
+            fetchingDescriptor = false
+            updateLoading()
             if (state.value.mode == TimelineMode.FOLLOWING) {
                 showLatest()
             } else if (state.value.frame == null && state.value.selection != null) {
@@ -291,6 +305,7 @@ class LatestRadar(
                 refreshError = "Radar refresh failed. Missing imagery does not mean clear weather.")
         } finally {
             fetching = false
+            fetchingDescriptor = false
             updateAge()
             updateLoading()
             refreshLock.unlock()

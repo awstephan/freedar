@@ -97,7 +97,7 @@ class MapRenderingTest {
                 assertTrue("Static coverage is requested separately from radar frames", requests.any { it.startsWith("/coverage/") })
                 assertTrue("Native zoom-7 tiles used at camera zoom 10", requests.any { it.startsWith("/radar/256/7/") })
                 scenario.onActivity {
-                    map.stopCoverage(); map.view.onPause(); map.view.onStop(); map.view.onDestroy()
+                    map.dispose(); map.view.onPause(); map.view.onStop(); map.view.onDestroy()
                 }
             }
         }

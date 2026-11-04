@@ -50,6 +50,9 @@ class RadarMap(context: Context) : RadarDisplay {
     lateinit var nativeMap: MapLibreMap
         private set
     private lateinit var style: Style
+    private var initialBasemap: InitialBasemap? = null
+    private val mutableBasemapStatus = MutableStateFlow<String?>(null)
+    val basemapStatus = mutableBasemapStatus.asStateFlow()
     private var visibleId: String? = null
     private var opacity = AppearanceSettings.DEFAULT_OPACITY
     private var presentingId: String? = null
@@ -129,8 +132,12 @@ class RadarMap(context: Context) : RadarDisplay {
 
     fun coverageForeground(active: Boolean) { coverage?.foreground(active) }
     fun stopCoverage() { coverage?.foreground(false); coverageObserver?.cancel() }
+    fun dispose() { stopCoverage(); initialBasemap?.close() }
 
     suspend fun loadStyle(url: String?, dark: Boolean = false) {
+        initialBasemap?.close()
+        mutableBasemapStatus.value = null
+        initialBasemap = InitialBasemap(view, mutableBasemapStatus)
         nativeMap = suspendCancellableCoroutine { continuation ->
             view.getMapAsync { if (continuation.isActive) continuation.resume(it) }
         }
@@ -154,7 +161,10 @@ class RadarMap(context: Context) : RadarDisplay {
             val builder = if (url == null) Style.Builder().fromJson(
                 if (dark) EMPTY_STYLE.replace("#e9eeec", "#333333") else EMPTY_STYLE
             ) else Style.Builder().fromUri(url)
-            nativeMap.setStyle(builder) { loaded.complete(it) }
+            nativeMap.setStyle(builder) {
+                initialBasemap?.styleLoaded(it)
+                loaded.complete(it)
+            }
             style = withTimeoutOrNull(30_000) { loaded.await() } ?: throw IOException("Base map timed out")
             if (dark) {
                 style.layers.filterIsInstance<org.maplibre.android.style.layers.BackgroundLayer>().forEach {
@@ -180,6 +190,12 @@ class RadarMap(context: Context) : RadarDisplay {
         } finally {
             view.removeOnDidFailLoadingMapListener(failure)
         }
+    }
+
+    /** Initial base imagery only; radar and coverage can load concurrently. */
+    suspend fun awaitInitialBasemap() {
+        nativeMap.triggerRepaint()
+        requireNotNull(initialBasemap).awaitReady()
     }
 
     /** Zoom 9 frames a local region; ground span depends on latitude and viewport. */

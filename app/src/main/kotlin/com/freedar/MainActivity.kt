@@ -38,6 +38,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.freedar.radar.LatestRadar
+import com.freedar.radar.ImageryLoading
 import com.freedar.radar.RadarState
 import com.freedar.radar.RadarFrame
 import com.freedar.radar.RadarProvider
@@ -52,6 +53,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 open class MainActivity : ComponentActivity() {
     private var permissionResult: ((Boolean) -> Unit)? = null
@@ -88,7 +93,11 @@ open class MainActivity : ComponentActivity() {
     private var cameraReady = false
     private var baseMessage by mutableStateOf<String?>("Loading base map…")
     private var styleReady by mutableStateOf(false)
+    private var initialBasemapFinished = false
+    private var foreground by mutableStateOf(false)
+    private val imageryLoading by lazy { ImageryLoading(lifecycleScope) }
     private var refreshJob: Job? = null
+    private var basemapJob: Job? = null
     private var timelineJob: Job? = null
     private var restored = false
     private var recreationState: RadarState? = null
@@ -164,7 +173,9 @@ open class MainActivity : ComponentActivity() {
                     radar.speed = speed
                 }
                 val state by radar.state.collectAsState()
+                val loadingImagery by imageryLoading.visible.collectAsState()
                 val tileStatus by map.status.collectAsState()
+                val basemapStatus by map.basemapStatus.collectAsState()
                 val coverageStatus by map.coverageStatus.collectAsState()
                 val positionState by positioning.state.collectAsState()
                 val notices = listOfNotNull(
@@ -174,13 +185,16 @@ open class MainActivity : ComponentActivity() {
                     "Radar imagery unavailable".takeIf { state.imageError != null || tileStatus != null },
                     "Offline".takeIf { state.offline },
                     "Saved radar".takeIf { state.retainedHistory },
-                    baseMessage, coverageStatus.message, positionState.message,
+                    baseMessage, basemapStatus, coverageStatus.message, positionState.message,
                     "Loading radar".takeIf { state.loading },
                 )
                 MapChrome(
+                    imageryLoading = loadingImagery,
+                    foreground = foreground,
+                    dark = darkTheme,
                     notice = notices.joinToString(". ").ifEmpty { "Radar feed up to date" },
                     warning = state.stale || state.error != null || state.offline || state.retainedHistory ||
-                        tileStatus != null || coverageStatus == CoverageStatus.UNAVAILABLE ||
+                        tileStatus != null || basemapStatus != null || coverageStatus == CoverageStatus.UNAVAILABLE ||
                         (!styleReady && baseMessage != "Loading base map…") ||
                         (baseMessage != null && styleReady) ||
                         (!positionState.waiting && positionState.message != null),
@@ -204,7 +218,7 @@ open class MainActivity : ComponentActivity() {
                     },
                     map = { AndroidView(factory = { map.view }, modifier = Modifier.fillMaxSize()) },
                     status = {
-                        RadarStatus(state, baseMessage, listOfNotNull(tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }, positionState.message) {
+                        RadarStatus(state, baseMessage, listOfNotNull(basemapStatus, tileStatus, coverageStatus.message).joinToString("\n").ifEmpty { null }, positionState.message) {
                             refresh(retryDisplayed = true)
                         }
                     },
@@ -220,6 +234,14 @@ open class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    radar.state.map { it.initialImageryLoading }.distinctUntilChanged().collectLatest { loading ->
+                        if (loading) {
+                            val operation = imageryLoading.begin()
+                            try { awaitCancellation() } finally { imageryLoading.end(operation) }
+                        }
+                    }
+                }
                 launch { map.viewportCooldown.collect { radar.retryViewport() } }
                 refresh()
                 var elapsed = 0
@@ -238,6 +260,7 @@ open class MainActivity : ComponentActivity() {
                     radar.background()
                     timelineJob?.cancel()
                     refreshJob?.cancel()
+                    basemapJob?.cancel()
                 }
             }
         }
@@ -251,19 +274,37 @@ open class MainActivity : ComponentActivity() {
     private fun refresh(retryDisplayed: Boolean = false) {
         if (refreshJob?.isActive == true) return
         refreshJob = lifecycleScope.launch {
-            if (!styleReady) {
-                baseMessage = "Loading base map…"
+            if (!initialBasemapFinished && basemapJob?.isActive != true) {
+                val operation = imageryLoading.begin()
+                var handedOff = false
                 try {
-                    val key = BuildConfig.CARTO_API_KEY
-                    map.loadStyle(baseStyleUrl(), darkTheme)
-                    styleReady = true
-                    baseMessage = if (key.isBlank()) "Base map needs the developer's CARTO key. See build instructions." else null
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    baseMessage = "Base map unavailable. Check connection and Retry."
-                    return@launch
-                }
+                    if (!styleReady) {
+                        baseMessage = "Loading base map…"
+                        try {
+                            val key = BuildConfig.CARTO_API_KEY
+                            map.loadStyle(baseStyleUrl(), darkTheme)
+                            styleReady = true
+                            baseMessage = if (key.isBlank()) "Base map needs the developer's CARTO key. See build instructions." else null
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            baseMessage = "Base map unavailable. Check connection and Retry."
+                            return@launch
+                        }
+                    }
+                    basemapJob = lifecycleScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                        try {
+                            map.awaitInitialBasemap()
+                            initialBasemapFinished = true
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: java.io.IOException) {
+                            // The source observer owns the error and clears it on recovery.
+                            initialBasemapFinished = true
+                        } finally { imageryLoading.end(operation) }
+                    }
+                    handedOff = true
+                } finally { if (!handedOff) imageryLoading.end(operation) }
             }
             if (returning) {
                 val resume = radar.foreground()
@@ -343,6 +384,7 @@ open class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart(); map.view.onStart()
+        foreground = true
         if (startupLocationPending) {
             startupLocationPending = false
             // Wait for the initial camera and native gesture cancellation listener, not network/style loading.
@@ -363,14 +405,16 @@ open class MainActivity : ComponentActivity() {
         map.view.onPause(); super.onPause()
     }
     override fun onStop() {
+        foreground = false
         positioning.background()
         if (isChangingConfigurations) recreationState = stateBeforeStop ?: radar.state.value
         radar.background(); timelineJob?.cancel(); refreshJob?.cancel()
+        basemapJob?.cancel()
         map.coverageForeground(false)
         connectivity.unregisterNetworkCallback(networkCallback)
         map.view.onStop(); super.onStop()
     }
-    override fun onDestroy() { map.stopCoverage(); map.view.onDestroy(); super.onDestroy() }
+    override fun onDestroy() { map.dispose(); map.view.onDestroy(); super.onDestroy() }
     override fun onLowMemory() { super.onLowMemory(); map.view.onLowMemory() }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("processSession", (application as FreedarApplication).processSession)
