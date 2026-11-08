@@ -21,6 +21,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.module.http.HttpRequestUtil
@@ -32,7 +33,11 @@ class OfflineRadarRenderingTest {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as FreedarApplication
         val phase = InstrumentationRegistry.getArguments().getString("radarProcessCheck")
         val processCheck = app.getSharedPreferences("radar-process-check", android.content.Context.MODE_PRIVATE)
-        if (phase != "verify") app.imagery.clear()
+        if (phase != "verify") {
+            app.imagery.clear()
+            // A previous fixture must not leave us at the viewport we intend to load next.
+            RememberedView(app).save(CameraPosition.Builder().target(LatLng(40.0, -100.0)).zoom(10.0).build())
+        }
         val png = ByteArrayOutputStream().apply output@{
             Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888).apply {
                 eraseColor(Color.BLUE); compress(Bitmap.CompressFormat.PNG, 100, this@output); recycle()
@@ -71,13 +76,19 @@ class OfflineRadarRenderingTest {
                     ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
                         awaitFrame()
                         label = frameLabel()
+                        compose.onNodeWithText("Close info").performScrollTo().performClick()
                         scenario.onActivity { activity -> map(activity.window.decorView)!!.getMapAsync {
                             it.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(40.0, -100.0), 6.0))
                         } }
-                        // Wait for Latest presentation at the new viewport before closing.
-                        compose.onNode(hasText("Retry") or hasText("Refresh")).performScrollTo().performClick()
-                        compose.waitForIdle()
-                        compose.waitUntil(30000) { compose.onAllNodesWithText("Updating radar…").fetchSemanticsNodes().isEmpty() }
+                        // Ordinary pan/zoom tile work is not the radar frame-preparation flag.
+                        // Do not cancel pending viewport downloads by closing the seed activity.
+                        compose.waitUntil(5000) {
+                            compose.onAllNodesWithContentDescription("Loading map imagery").fetchSemanticsNodes().isNotEmpty()
+                        }
+                        compose.waitUntil(30000) {
+                            compose.onAllNodesWithContentDescription("Loading map imagery").fetchSemanticsNodes().isEmpty()
+                        }
+                        awaitFrame()
                         assertBlue(scenario)
                         compose.onNodeWithText("Close info").performScrollTo().performClick()
                         compose.onNodeWithContentDescription("Settings").performClick()
@@ -99,7 +110,8 @@ class OfflineRadarRenderingTest {
                 ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
                     awaitFrame()
                     assertEquals(label, frameLabel())
-                    compose.onNodeWithText("Saved radar · original frame time, not live data").assertExists()
+                    compose.onNodeWithText("Saved radar", substring = true)
+                        .assertTextContains("retained imagery is not live", substring = true)
                     compose.onNodeWithText("Stale radar feed").assertExists()
                     assertBlue(scenario)
                     compose.revealMapControls()

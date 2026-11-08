@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.pm.ActivityInfo
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -23,7 +25,9 @@ class MapControlsRenderingTest {
                 compose.rotateAndWait(scenario, orientation)
                 Thread.sleep(5500)
                 for (label in listOf("Attributions", "Info", "Locate", "Search", "Settings")) {
-                    val bounds = compose.onNodeWithContentDescription(label).assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+                    val bounds = compose.onNodeWithContentDescription(label).assertIsDisplayed().assertHasClickAction()
+                        .fetchSemanticsNode().boundsInWindow
+                    val minimumTarget = with(compose.density) { 48.dp.roundToPx() }
                     scenario.onActivity {
                         assertEquals(1.8f, it.resources.configuration.fontScale, .01f)
                         val decor = it.window.decorView
@@ -33,7 +37,10 @@ class MapControlsRenderingTest {
                         assertTrue(bounds.bottom <= decor.height - insets.bottom)
                         assertTrue(bounds.left >= insets.left)
                         assertTrue(bounds.right <= decor.width - insets.right)
-                        assertTrue(bounds.height >= 48 * it.resources.displayMetrics.density)
+                        assertTrue("$label height ${bounds.height} must fit a 48 dp target ($minimumTarget px)",
+                            bounds.height >= minimumTarget)
+                        assertTrue("$label width ${bounds.width} must fit a 48 dp target ($minimumTarget px)",
+                            bounds.width >= minimumTarget)
                     }
                 }
                 compose.onNodeWithText("© OpenStreetMap contributors", substring = true).assertDoesNotExist()
@@ -53,7 +60,8 @@ class MapControlsRenderingTest {
                 compose.onNodeWithText("Close info").performClick()
                 for ((label, closeLabel) in listOf("Attributions" to "Close attributions", "Info" to "Close info",
                     "Settings" to "Done", "Search" to "Close search")) {
-                    compose.onNodeWithContentDescription(label).performTouchInput { click() }
+                    // Exercise the invisible target beyond the 28 dp visual background.
+                    compose.onNodeWithContentDescription(label).performTouchInput { click(Offset(1f, center.y)) }
                     compose.onNodeWithText(closeLabel).assertExists()
                     if (label == "Attributions") {
                         compose.onNodeWithText("© OpenStreetMap contributors").performScrollTo().assertIsDisplayed()
@@ -63,7 +71,9 @@ class MapControlsRenderingTest {
                         compose.onNodeWithText("City or town").performScrollTo().performClick().performTextInput("London")
                         compose.waitForIdle()
                     }
-                    compose.onNodeWithContentDescription(label).performTouchInput { click() }
+                    compose.onNodeWithContentDescription(label).performTouchInput {
+                        click(Offset(width - 2f, center.y))
+                    }
                     compose.onNodeWithText(closeLabel).assertDoesNotExist()
                 }
             }

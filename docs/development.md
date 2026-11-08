@@ -175,6 +175,10 @@ skipped, keeping routine fixture tests independent of provider access.
 
 ### Recorded validation
 
+The [#17/#19 follow-up](validation/issues-17-19.md) records the current large-text
+controls and offline-restoration test corrections, separate-process validation,
+and a full physical-device suite with 34 passes, no failures and four opt-in skips.
+
 Start with the [compact-map checks](validation/compact-map.md) for the latest
 UI/startup changes and [integrated testing results](validation/issue-10.md)
 for cross-feature, geographic and process-restart evidence. APK hashes and sizes
