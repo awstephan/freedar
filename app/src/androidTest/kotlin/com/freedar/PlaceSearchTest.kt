@@ -28,17 +28,24 @@ class PlaceSearchTest {
         val context = instrumentation.targetContext
         fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(
             instrumentation.uiAutomation.executeShellCommand(command)).use { String(it.readBytes()).trim() }
-        org.junit.Assume.assumeTrue("Radio isolation requires the AOSP emulator", shell("su 0 id").contains("uid=0"))
+        val externallyOffline = InstrumentationRegistry.getArguments().getString("searchBenchmarkOffline") == "true"
+        val rootedBenchmark = InstrumentationRegistry.getArguments().getString("searchBenchmarkRooted") == "true"
+        org.junit.Assume.assumeTrue("Use a rooted AOSP emulator or explicitly isolate the device network",
+            externallyOffline || rootedBenchmark)
+        if (!externallyOffline) org.junit.Assume.assumeTrue("Rooted benchmark requires root", shell("su 0 id").contains("uid=0"))
         val wifi = shell("settings get global wifi_on")
         val data = shell("settings get global mobile_data")
         try {
-            shell("su 0 svc wifi disable")
-            shell("su 0 svc data disable")
+            if (!externallyOffline) {
+                shell("su 0 svc wifi disable")
+                shell("su 0 svc data disable")
+            }
             val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
             val deadline = android.os.SystemClock.elapsedRealtime() + 10000
             while (connectivity.activeNetwork != null && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(100)
             assertNull("Device has no active network", connectivity.activeNetwork)
             context.cacheDir.deleteRecursively()
+            val installedBefore = java.io.File(context.noBackupFilesDir, "place-search/places-v1.sqlite").exists()
             val start = android.os.SystemClock.elapsedRealtimeNanos()
             PlaceSearch(context).use { search ->
                 val opened = android.os.SystemClock.elapsedRealtimeNanos()
@@ -53,15 +60,17 @@ class PlaceSearchTest {
                     }
                 }
                 timings.sort()
-                android.util.Log.i("PlaceSearchBenchmark", "openMs=${(opened-start)/1000000} firstMs=${(first-opened)/1000000} " +
+                android.util.Log.i("PlaceSearchBenchmark", "installedBefore=$installedBefore openMs=${(opened-start)/1000000} firstMs=${(first-opened)/1000000} " +
                     "queries=${timings.size} medianMs=${timings[timings.size/2]} p95Ms=${timings[(timings.size*95/100)]} maxMs=${timings.last()}")
-                assertTrue("Submitted queries stay below 2 seconds on API 26", timings.last() < 2000)
+                assertTrue("Submitted queries stay below 2 seconds", timings.last() < 2000)
             }
             context.cacheDir.deleteRecursively()
             PlaceSearch(context).use { assertEquals(3413829L, it.search("Reykjavik").first().id) }
         } finally {
-            if (wifi == "1") shell("su 0 svc wifi enable")
-            if (data == "1") shell("su 0 svc data enable")
+            if (!externallyOffline) {
+                if (wifi == "1") shell("su 0 svc wifi enable")
+                if (data == "1") shell("su 0 svc data enable")
+            }
         }
     }
 

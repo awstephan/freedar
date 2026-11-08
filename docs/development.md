@@ -4,7 +4,9 @@
 
 Kotlin/Compose hosts MapLibre Native **OpenGL ES**, with current CARTO
 Positron/Dark Matter vector maps and RainViewer radar. Android 8.0 (API 26) is
-the minimum; compile and target SDK are 35. There is no Play Services dependency.
+the installation minimum; compile and target SDK are 35. Supported versions follow
+the [Android support policy](android-support.md), independently of `minSdk`.
+There is no Play Services dependency.
 
 ## Build and run
 
@@ -124,7 +126,39 @@ Use hardware acceleration when available. The instrumentation test renders a
 known blue PNG through the real native renderer, asserts snapshot pixels and
 records actual HTTP paths at camera zoom 10; testing a source configuration alone
 would not establish overzoom behavior. Debug-only cleartext access supports the
-local fixture; release builds disallow it.
+local fixture; release builds disallow it. API-26 runs are optional legacy
+compatibility evidence, not the supported-version release gate.
+
+For physical-device validation, use an isolated debug application ID to preserve
+the installed release and its data. Save this as an external Gradle init script:
+
+```groovy
+allprojects {
+    plugins.withId('com.android.application') {
+        android.buildTypes.debug.applicationIdSuffix = '.validation'
+    }
+}
+```
+
+Pass `-I /path/to/validation.gradle` to every build/test invocation and set
+`ANDROID_SERIAL` to the intended device. Keep the phone unlocked during native
+checks. See [#16's record](validation/issue-16.md) for older-device results.
+Keep normal device connectivity for native HTTP fixtures: on the Pixel 4 XL,
+disabling all networks also prevented the native renderer from loading loopback
+tiles. Run the offline-search benchmark separately from the rendering suite.
+
+The existing offline-search benchmark can also run on an unrooted physical
+device. Disconnect its networks first (record and restore their original state),
+then run the single method with
+`-Pandroid.testInstrumentationRunnerArguments.searchBenchmarkOffline=true` and
+`-Pandroid.testInstrumentationRunnerArguments.class=com.freedar.PlaceSearchTest#offlineSearchSurvivesCacheRemovalAndReportsDeviceTimings`.
+The opt-in does not change radio settings; it asserts there is no active network.
+On a rooted AOSP emulator, use `searchBenchmarkRooted=true` instead to let the
+benchmark disable and restore radios itself. Neither mode runs by default;
+ordinary suites skip the benchmark before attempting any root probe.
+Logs tagged `PlaceSearchBenchmark` distinguish first installation from an existing
+index. For a first-use measurement clear **only the isolated validation package**
+before a manual instrumentation invocation; never clear `com.freedar`.
 
 To repeat the **opt-in live CARTO check**, build with the developer key and run:
 

@@ -7,7 +7,9 @@ required.
 ## Download and install
 
 **[Download Freedar v0.1.1](https://github.com/awstephan/freedar/releases/tag/v0.1.1)**
-for **Android 8.0 or newer**. The release includes a signed universal APK
+installable on **Android 8.0 or newer**. Supported versions are **Android 14–17**;
+older versions may work but are unsupported. See the [Android support policy](docs/android-support.md).
+The release includes a signed universal APK
 (`freedar-0.1.1.apk`, approximately 76 MB) and a `SHA256SUMS` checksum file.
 
 1. Download the APK to your Android device.

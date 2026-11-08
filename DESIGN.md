@@ -84,7 +84,10 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 ## Technical direction
 
 - Kotlin and Jetpack Compose, embedding a dedicated map renderer.
-- Target Android 8.0/API 26 and newer, subject to dependency/device validation.
+- Support stable Android versions receiving upstream platform security fixes;
+  see [Android support](docs/android-support.md) for the dated baseline and review
+  policy. Retain Android 8.0/API 26 as the installation minimum; older unsupported
+  versions may work without a compatibility promise or runtime block.
 - No Google Play Services or Play Store dependency. Use platform location and Android accessibility APIs.
 - Candidate renderer: MapLibre Native. Candidate base map: current CARTO vector maps, subject to current terms and key setup.
 - Build the real map/radar foundation as the first implementation slice, validating animation, overzoom, request budgeting, accessibility, and Google-free operation within it. A separate throwaway spike is not required.
