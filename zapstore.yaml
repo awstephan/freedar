@@ -2,3 +2,20 @@ repository: https://github.com/awstephan/freedar
 pubkey: npub1gjwnmhetn43wwphslhg6y0k4zeugdvc3hsey794t5g8e0aztezrqccw0g7
 metadata_sources:
     - github
+name: Freedar
+summary: Animated precipitation radar with offline city search
+description: |
+    A lightweight Android precipitation radar viewer with animated
+    weather maps, light and dark themes, and offline city search.
+
+    No ads, accounts, or Google Play Services required.
+    Radar shows recent precipitation history, not forecasts or alerts.
+license: BSD-3-Clause
+tags: [weather, radar]
+
+icon: ./docs/icon.png
+images:
+    - ./docs/screenshots/radar-dark.png
+    - ./docs/screenshots/radar-light.png
+    - ./docs/screenshots/search.png
+    - ./docs/screenshots/settings.png
