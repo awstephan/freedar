@@ -11,6 +11,8 @@ enum class MapTheme(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK(
 /** Remembered choices, independent of the lifetime or orientation of the settings surface. */
 class AppearanceSettings(context: Context) {
     private val preferences = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
+    var autoHideControls by mutableStateOf(preferences.getBoolean("auto-hide-controls", true))
+        private set
     var opacity by mutableStateOf(preferences.getFloat("opacity", DEFAULT_OPACITY)
         .takeIf { it.isFinite() && it in 0f..1f } ?: DEFAULT_OPACITY)
         private set
@@ -26,6 +28,10 @@ class AppearanceSettings(context: Context) {
     fun theme(value: MapTheme) {
         theme = value
         preferences.edit().putString("theme", value.name).apply()
+    }
+    fun autoHideControls(value: Boolean) {
+        autoHideControls = value
+        preferences.edit().putBoolean("auto-hide-controls", value).apply()
     }
     fun dark(systemDark: Boolean) = when (theme) {
         MapTheme.SYSTEM -> systemDark

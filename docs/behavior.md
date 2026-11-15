@@ -6,7 +6,12 @@
   dBZ color samples. **Settings** offers immediate radar-opacity preview (65% default
   and reset), System/Light/Dark for map and controls, and
   Slow 1 / Normal 2 / Fast 4 fps playback. Choices persist. About includes version,
-  project and source links. Controls stay visible, with compact corner icons and a thin bottom timeline.
+   project and source links. **Auto-hide controls** defaults on and is remembered. Compact corner icons,
+   the bottom timeline and frame-time label hide after five idle seconds; playback continues.
+   Touch/gestures, pointer movement and keyboard input reveal controls without consuming the input.
+   Open panels, active input, keyboard focus inside controls, locating and touch exploration hold
+   controls visible. Releasing the last hold or returning to the foreground starts a fresh countdown.
+   Outside taps and map gestures dismiss panels while performing their normal action.
   Dark land is charcoal (#333333) and water #222222, preserving radar colors and readable roads.
   See [appearance semantics and storage boundary](radar-appearance.md).
 - **Locate** uses Android's platform GPS/network providers for a one-shot fix,

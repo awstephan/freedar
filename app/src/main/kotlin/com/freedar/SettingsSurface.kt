@@ -3,6 +3,7 @@ package com.freedar
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
@@ -35,6 +36,14 @@ fun SettingsSurface(settings: AppearanceSettings,
                 Text("Settings", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = dismiss) { Text("Done") }
             }
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .toggleable(settings.autoHideControls, role = Role.Switch, onValueChange = settings::autoHideControls),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Auto-hide controls", Modifier.weight(1f))
+                Switch(settings.autoHideControls, onCheckedChange = null)
+            }
+            Text("Hide controls after five seconds of inactivity. Touch the map to show them again.",
+                style = MaterialTheme.typography.bodySmall)
             Text("Radar opacity · ${(settings.opacity * 100).roundToInt()}%")
             Slider(value = settings.opacity, onValueChange = settings::opacity,
                 modifier = Modifier.semantics { contentDescription = "Radar opacity" })

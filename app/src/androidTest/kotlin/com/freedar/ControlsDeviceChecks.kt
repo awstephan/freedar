@@ -35,11 +35,20 @@ fun ComposeTestRule.rotateAndWait(scenario: ActivityScenario<LifecycleTestActivi
 }
 
 fun ComposeTestRule.revealMapControls() {
-    waitForIdle() // Compact controls are always visible.
+    onNodeWithContentDescription("Weather map").performSemanticsAction(SemanticsActions.OnClick) { it() }
+}
+
+fun ComposeTestRule.waitForControlsIdle() {
+    // Visibility uses real monotonic time; Compose's coroutine scheduler uses the test clock.
+    waitForIdle()
+    Thread.sleep(5500)
+    mainClock.advanceTimeBy(100)
+    waitForIdle()
 }
 
 fun ComposeTestRule.awaitRadar() {
     waitUntil(30000) {
+        revealMapControls()
         onAllNodesWithContentDescription("Radar history; scrubbing pauses playback").fetchSemanticsNodes().isNotEmpty()
     }
 }

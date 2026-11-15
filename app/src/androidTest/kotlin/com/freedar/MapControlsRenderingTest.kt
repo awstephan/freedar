@@ -14,11 +14,28 @@ import com.freedar.radar.RadarProvider
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 
 class MapControlsRenderingTest {
     @get:Rule val compose = createEmptyComposeRule()
+    private val preferences = InstrumentationRegistry.getInstrumentation().targetContext
+        .getSharedPreferences("appearance", 0)
+    private var originalAutoHide: Boolean? = null
+
+    @Before fun enableAutoHide() {
+        originalAutoHide = preferences.all["auto-hide-controls"] as? Boolean
+        preferences.edit().putBoolean("auto-hide-controls", true).commit()
+    }
+
+    @After fun restoreAutoHide() {
+        val edit = preferences.edit()
+        originalAutoHide?.let { edit.putBoolean("auto-hide-controls", it) } ?: edit.remove("auto-hide-controls")
+        edit.commit()
+    }
 
     @Test fun persistentCornerIconsFitSystemInsetsAtLargeTextInBothOrientations() = withLargeText {
+        preferences.edit().putBoolean("auto-hide-controls", false).commit()
         LifecycleTestActivity.provider = RadarProvider { error("Fixture unavailable") }
         ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
             for (orientation in listOf(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)) {
@@ -52,7 +69,7 @@ class MapControlsRenderingTest {
                 compose.onNodeWithText("Close info").performScrollTo().performClick()
                 compose.onNodeWithContentDescription("Settings").performClick()
                 compose.onNodeWithText("Radar opacity", substring = true).assertExists()
-                compose.onNodeWithText("Keep controls visible").assertDoesNotExist()
+                compose.onNodeWithText("Auto-hide controls").performScrollTo().assertIsOff()
                 // Persistent corner actions switch directly, rather than queuing hidden panels.
                 compose.onNodeWithContentDescription("Info").performClick()
                 compose.onNodeWithText("Close info").assertIsDisplayed()
@@ -77,6 +94,66 @@ class MapControlsRenderingTest {
                     compose.onNodeWithText(closeLabel).assertDoesNotExist()
                 }
             }
+        }
+    }
+
+    @Test fun idleControlsHideMapTouchRevealsAndTheToggleSurvivesRecreation() {
+        LifecycleTestActivity.provider = RadarProvider { error("Fixture unavailable") }
+        ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
+            compose.onNodeWithContentDescription("Settings").assertIsDisplayed()
+            compose.waitForControlsIdle()
+            compose.onNodeWithContentDescription("Settings").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Weather map").performTouchInput { click() }
+            compose.onNodeWithContentDescription("Settings").assertIsDisplayed().performClick()
+            compose.waitForControlsIdle()
+            compose.onNodeWithText("Auto-hide controls").assertIsOn().performClick().assertIsOff()
+            compose.onNodeWithText("Done").performClick()
+            scenario.recreate()
+            compose.waitForControlsIdle()
+            compose.onNodeWithContentDescription("Settings").assertIsDisplayed().performClick()
+            compose.onNodeWithText("Auto-hide controls").assertIsOff().performClick().assertIsOn()
+            compose.onNodeWithText("Done").performClick()
+            compose.waitForControlsIdle()
+            compose.onNodeWithContentDescription("Settings").assertDoesNotExist()
+        }
+    }
+
+    @Test fun outsideTouchDismissesPanelAndStillReachesNativeMap() {
+        LifecycleTestActivity.provider = RadarProvider { error("Fixture unavailable") }
+        ActivityScenario.launch(LifecycleTestActivity::class.java).use { scenario ->
+            val outsideY = with(compose.density) { 48.dp.toPx() }
+            val tapped = java.util.concurrent.CountDownLatch(1)
+            scenario.onActivity { activity ->
+                fun findMap(view: android.view.View): org.maplibre.android.maps.MapView? {
+                    if (view is org.maplibre.android.maps.MapView) return view
+                    if (view is android.view.ViewGroup) for (i in 0 until view.childCount) {
+                        findMap(view.getChildAt(i))?.let { return it }
+                    }
+                    return null
+                }
+                requireNotNull(findMap(activity.window.decorView)).getMapAsync {
+                    it.addOnMapClickListener { tapped.countDown(); true }
+                }
+            }
+            compose.onNodeWithContentDescription("Settings").performClick()
+            compose.onNodeWithText("Auto-hide controls").performTouchInput { click() }
+            compose.onNodeWithText("Done").assertExists()
+            compose.onNodeWithContentDescription("Weather map").performTouchInput {
+                click(Offset(center.x, outsideY))
+            }
+            compose.onNodeWithText("Done").assertDoesNotExist()
+            assertTrue("Outside tap reaches native map", tapped.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            compose.onNodeWithContentDescription("Info").performTouchInput { click() }
+            compose.onNodeWithContentDescription("Settings").performTouchInput { click() }
+            compose.onNodeWithText("Close info").assertDoesNotExist()
+            compose.onNodeWithText("Done").assertExists()
+            compose.onNodeWithContentDescription("Settings").performTouchInput { click() }
+            compose.onNodeWithText("Done").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Settings").performClick()
+            compose.onNodeWithContentDescription("Weather map").performTouchInput {
+                swipe(Offset(center.x, outsideY), Offset(center.x + 100f, outsideY), 500)
+            }
+            compose.onNodeWithText("Done").assertDoesNotExist()
         }
     }
 

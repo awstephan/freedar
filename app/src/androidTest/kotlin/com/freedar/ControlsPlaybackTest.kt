@@ -35,7 +35,10 @@ class ControlsPlaybackTest {
     private fun selectOld() {
         slider().performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
         mode("Selected frame")
-        compose.waitUntil(30000) { compose.onAllNodesWithContentDescription("Frame time").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30000) {
+            compose.revealMapControls()
+            compose.onAllNodesWithContentDescription("Frame time").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test fun compactTimelineShowsOnlyDisplayedHistoricalTimeAndSurvivesRotation() = withLargeText {
@@ -62,7 +65,11 @@ class ControlsPlaybackTest {
                 compose.awaitRadar()
                 icon("Pause").assertIsDisplayed()
             }
-            Thread.sleep(5500)
+            compose.waitForControlsIdle()
+            icon("Pause").assertDoesNotExist()
+            slider().assertDoesNotExist()
+            icon("Frame time").assertDoesNotExist()
+            compose.revealMapControls()
             icon("Pause").assertIsDisplayed().performClick()
             icon("Latest").performClick()
             mode("Following latest")

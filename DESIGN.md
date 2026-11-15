@@ -24,11 +24,13 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 - Portrait and landscape; rotation preserves map and playback state.
 - Theme follows the system by default, with Light and Dark overrides.
 - First launch shows the contiguous USA without prompting for location permission. On later cold launches, existing location permission triggers one fresh foreground fix; remembered center/zoom is the fallback. Rotation and foreground return preserve the current camera.
-- Compact controls are always visible, with 24 dp icons, 28 dp rounded backgrounds, and invisible 48 dp touch targets. Top-left: Attributions (©); top-right: Locate and Search; bottom-left: Settings immediately followed by Info; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
+- Compact controls have 24 dp icons, 28 dp rounded backgrounds, and invisible 48 dp touch targets. Top-left: Attributions (©); top-right: Locate and Search; bottom-left: Settings immediately followed by Info; bottom-right: a thin timeline and Play/Pause, with Latest nearby when not following latest.
+- Controls auto-hide after five seconds of inactivity by default, including all corner icons, timeline, Play/Pause, Latest and frame-time label, leaving the full-screen radar view. Playback continues and radar updates do not reset the timer. Touch, map gestures, pointer movement and keyboard interaction reveal controls without consuming their normal action. Open panels, keyboard focus within controls, active interaction, locating and accessibility touch exploration hold controls visible; ending the last hold starts a fresh five-second interval. Foreground return also starts a fresh interval. This revision was approved for implementation on 2026-11-14.
 - Frame time is a small tag above the timeline, positioned at the displayed frame. Show it during playback/scrubbing and when paused on an older image; hide it when paused at the latest image.
 - Info turns red and adds a warning badge for stale data or update failures; its accessible description reports the condition. Its compact sections are Radar status (including Retry/Refresh), Legend, and Coverage & limitations. Historical selection alone does not trigger a stale-feed warning.
 - Attributions contains one linked provider name per line. No persistent status/coverage/credit cards; collapsed attribution still conflicts with CARTO's currently published visible-credit requirement (see VALIDATION.md).
 - Attributions, Info, Settings, and Search toggle closed when their icon is tapped again; opening another replaces the current panel. Centered, content-sized panels scroll within space reserved between controls. Explicit close buttons and Android Back also dismiss panels; closing Search dismisses its keyboard. These presentation revisions were agreed on 2026-11-02.
+- Tapping/clicking or starting a pan/pinch outside a panel dismisses it and performs the underlying action normally. Interacting inside a panel does not dismiss it. Outside dismissal was agreed on 2026-11-14.
 - Dark basemap uses charcoal land (#333333), darker water (#222222), and readable roads/labels. Radar colors and opacity semantics are unchanged.
 
 ## Radar and time
@@ -76,7 +78,7 @@ Worldwide exploration and city/town search; all 50 US states are the initial val
 
 - Radar opacity slider: immediate preview with map partly visible, remembered value, reset to default.
 - Theme: System (default), Light, Dark.
-- Controls are always visible; there is no auto-hide preference.
+- Auto-hide controls: enabled by default; switching it off keeps controls visible. The choice persists across app restarts.
 - Playback speed: Slow, Normal (default), Fast; remembered.
 - Clear downloaded data: removes cached maps/radar but preserves settings, map position, and bundled search data.
 - About: app version, GitHub link, and source credits including GeoNames. The Info panel also contains linked attribution.

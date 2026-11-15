@@ -57,8 +57,11 @@ does not establish clear weather; the Info panel contains the coverage guidance.
 - **Playback: Normal, 2 fps.** Slow is 1 fps and Fast is 4 fps. A speed change affects
   the next scheduled interval without restarting history. The newest frame always
   holds for one second. Loading can reduce achieved frame rate; these are targets.
-- **Controls always visible.** Small corner icons replace the large cards and auto-hide
-  setting. Info contains status, Retry/Refresh, coverage guidance, legend and credits;
+- **Auto-hide controls: on by default.** The remembered setting hides all corner icons,
+  playback controls and the time tag after five idle seconds. Interaction reveals them;
+  open panels, active input, keyboard focus within controls, locating and touch exploration
+  keep them visible. Playback and radar updates do not reset the countdown.
+  Info contains status, Retry/Refresh, coverage guidance and legend;
   Info/Settings/Search use bounded scrolling panels that survive rotation. A red Info
   icon with a warning badge and accessible status indicates stale/failed data.
 - **Time tag:** above the thin slider at the displayed frame, visible during playback,
