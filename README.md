@@ -46,6 +46,9 @@ Select a screenshot to view it at full resolution.
 
 - **Animated radar:** explore approximately two hours of precipitation history,
   scrub the timeline, or jump to the latest available frame.
+- **Unobstructed radar:** controls hide after five idle seconds while playback
+  continues. Touch the map to bring them back, or turn off **Auto-hide controls**
+  in Settings. Tap or start a map gesture outside an open panel to dismiss it.
 - **Worldwide navigation:** pan and zoom freely, search cities and towns offline,
   or use optional one-shot location.
 - **Your preferred view:** light, dark, and system themes; adjustable radar opacity
